@@ -32,5 +32,6 @@ features = [
     "png",
     "jpeg",
     "wayland",
-    "2d"
+    "2d",
+    "bevy_dev_tools"
 ]

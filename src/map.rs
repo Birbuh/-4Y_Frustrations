@@ -2,6 +2,7 @@ use std::default;
 
 use bevy::{
     camera::Camera2d,
+    dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
     ecs::resource::Resource,
     input::{
         ButtonInput,
@@ -15,14 +16,26 @@ use bevy::{
     window::PrimaryWindow,
 };
 
-use crate::ships::ShipType;
+use crate::{
+    map::{self, IconType::Ship}, ships::{Fighter, ShipType},
+};
 
+pub struct MapPlugin;
+
+impl Plugin for MapPlugin {
+    fn build(&self, app: &mut App) {
+        // app.add_plugins(InfiniteGridPlugin);
+        app.add_systems(FixedUpdate, (update_map_camera, update_camera_from_map_camera).chain());
+    }
+}
+
+#[derive(Component, Clone, Copy, Debug)]
 pub enum Factions {
     Petakians,
     Furgians,
-    Papug,
 }
 
+#[derive(Component, Clone, Debug)]
 pub enum IconType {
     Ship(ShipType),
 }
@@ -40,9 +53,7 @@ pub enum RelationType {
 pub enum MapState {
     #[default]
     Universe,
-    Sector1(Entity),
-    Sector2,
-    Sector3,
+    Sector(u16),
 }
 
 #[derive(Resource, Debug)]
@@ -69,8 +80,8 @@ pub struct MapViewport {
 }
 
 #[derive(Component)]
-pub struct SectorPos {
-    pub sector: Entity,
+pub struct EntityPosInASector {
+    pub sector: u16,
     pub pos: DVec2,
 }
 
@@ -114,10 +125,55 @@ pub struct MapLoD {
     pub show_routes: bool,
 }
 
+#[derive(Debug)]
 pub struct VisibleMapObject {
     pub entity: Entity,
     pub map_pos: DVec2,
     pub screen_pos: Vec2,
+    pub obj_type: IconType,
+    pub faction: Factions,
+    pub sector_id: u16,
+}
+
+impl VisibleMapObject {
+    pub fn draw(
+        &mut self,
+        commands: &mut Commands,
+        asset_server: &AssetServer,
+        faction: Factions,
+        sector_id: u16,
+    ) {
+        let (image, obj_type): (Handle<Image>, IconType) = match &self.obj_type {
+            IconType::Ship(ship_type) => match ship_type {
+                ShipType::Fighter(_) => (
+                    asset_server.load("fighter.png"),
+                    IconType::Ship(ShipType::Fighter(Fighter::new(
+                        sector_id,
+                        self.map_pos,
+                        faction,
+                    ))),
+                ),
+            },
+        };
+        let entity_commands = commands.spawn((
+            Sprite {
+                image,
+                ..default()
+            },
+            Transform::from_translation(self.screen_pos.extend(0.)),
+            EntityPosInASector {
+                sector: sector_id,
+                pos: self.map_pos,
+            },
+            match &obj_type {
+                Ship(ship_type) => match ship_type {
+                    ShipType::Fighter(fighter) => fighter.clone()
+                }
+            }
+        ));
+
+        self.entity = entity_commands.id();
+    }
 }
 
 #[derive(Resource)]
@@ -126,6 +182,20 @@ pub struct VisibleMapObjects {
 }
 
 // ##################################################################### updates the camera.
+
+pub fn update_camera_from_map_camera(
+    map_camera: Res<MapCamera>,
+    camera_q: Single<(&mut Transform, &mut Projection), With<Camera2d>>,
+) {
+    let (mut camera_t, mut projection) = camera_q.into_inner();
+        camera_t.translation.x = map_camera.center.x as f32;
+        camera_t.translation.y = map_camera.center.y as f32;
+
+        if let Projection::Orthographic(orto_proj) = &mut *projection {
+            orto_proj.scale = 1.0 / map_camera.zoom as f32
+        }
+}
+
 pub fn update_map_camera(
     // keyboard: Res<ButtonInput<KeyCode>>, // preserved for future
     mouse: Res<ButtonInput<MouseButton>>,
@@ -134,17 +204,29 @@ pub fn update_map_camera(
     mouse_motion: Res<AccumulatedMouseMotion>,
 ) {
     for event in mouse_wheel.read() {
-        map_camera.zoom += event.y as f64; // update the map zoom by the amount was scrolled.
-        // For future development.
+        if map_camera.zoom > 0. && map_camera.zoom < 10. {
+            map_camera.zoom += event.y as f64 / 5.; // update the map zoom by the amount was scrolled.
+        } else if map_camera.zoom < 0.{
+            if event.y >= 0. {
+                map_camera.zoom += event.y as f64 / 5.; // update the map zoom by the amount was scrolled IF IT'S ZOOMING IN.
+            }
+        } else {
+            if event.y <= 0. {
+                map_camera.zoom += event.y as f64 / 5.; // update the map zoom by the amount was scrolled IF IT'S ZOOMING OUT.
+            }
+        }
+        // Saved for future development.
         // match event.unit {
         //     bevy::input::mouse::MouseScrollUnit::Line => {},
         //     bevy::input::mouse::MouseScrollUnit::Pixel => {}
         // }
     }
 
-    if mouse.just_pressed(MouseButton::Right) {
-        let delta_mouse_motion = mouse_motion.delta; // get mouse delta from the last frame
+    if mouse.pressed(MouseButton::Right) {
+        let mut delta_mouse_motion = mouse_motion.delta; // get mouse delta from the last frame
 
+        delta_mouse_motion.x = -delta_mouse_motion.x;
+        
         map_camera.update_pos_from_vec2(&delta_mouse_motion); // update the map's centre pos
     }
 }
@@ -153,7 +235,7 @@ pub fn update_map_camera(
 pub fn map_to_screen(
     // from map (simulation) to screen (visualisation)
     map_pos: DVec2,
-    camera: MapCamera,
+    camera: &MapCamera,
 ) -> Vec2 {
     let mut pos = map_pos.clone();
 
@@ -224,21 +306,58 @@ pub fn calculate_lod(camera: Res<MapCamera>) -> MapLoD {
 
 // ############################################################################ Check for visible objects
 
-// pub fn get_visible_map_objects(
-//     current_state: State<MapState>,
-//     entities: Query<(Entity, &SectorPos), With<MapVisible>>,
-//     camera: Res<MapCamera>
-// ) {
-//     let mut visible_objects: Vec<VisibleMapObject> = Vec::new();
-//     match current_state.get() {
-//         MapState::Universe => {}
-//         MapState::Sector1(sector_id) => {
-//             for (entity, pos) in entities {
-//                 if pos.sector == *sector_id {
-//                     // let screen_pos = camera.center;
-//                     visible_objects.push(VisibleMapObject { entity, map_pos: pos.pos, });
-//                 }
-//             }
-//         }
-//     }
-// }
+pub fn get_visible_map_objects(
+    mut commands: Commands,
+    current_state: Res<State<MapState>>,
+    entities: Query<(Entity, &EntityPosInASector, &IconType, &Factions), With<MapVisible>>,
+    camera: Res<MapCamera>,
+) {
+    let mut visible_objects: Vec<VisibleMapObject> = Vec::new();
+    match *current_state.get() {
+        MapState::Universe => {}
+        MapState::Sector(sector_id) => {
+            for (entity, pos, obj_type, faction) in entities {
+                if pos.sector == sector_id {
+                    let screen_pos = map_to_screen(pos.pos, &camera);
+                    visible_objects.push(VisibleMapObject {
+                        entity,
+                        map_pos: pos.pos,
+                        screen_pos,
+                        obj_type: obj_type.clone(),
+                        faction: *faction,
+                        sector_id,
+                    });
+                }
+            }
+        }
+    }
+    commands.remove_resource::<VisibleMapObjects>();
+    commands.insert_resource(VisibleMapObjects { objects: visible_objects });
+}
+
+// ##################################################### # # # RENDERING # # # ######################################################
+
+// Background Grid (background itself is basically a fixed color)
+pub fn render_map_grid(mut commands: Commands) {
+    commands.spawn((
+        InfiniteGrid,
+        InfiniteGridSettings {
+            x_axis_color: Color::srgb(0.77, 0.77, 0.77),
+            z_axis_color: Color::srgb(0.77, 0.77, 0.77),
+            minor_line_color: Color::srgb(0.33, 0.33, 0.33),
+            major_line_color: Color::srgb(0.55, 0.55, 0.55),
+            fadeout_distance: 10.,     // this is the thing to experiment with
+            dot_fadeout_strength: 10., // ---||---
+            scale: 5.,
+        },
+    ));
+}
+
+// Objects (map icons)
+pub fn render_map_icons(mut commands: Commands, asset_server: Res<AssetServer>, mut visible_objects: Query<&mut VisibleMapObjects>) {
+    if let Some(mut objects) = visible_objects.iter_mut().next() {
+        for object in objects.objects.iter_mut() {
+            object.draw(&mut commands, &asset_server, object.faction, object.sector_id);
+        }
+    }
+}
