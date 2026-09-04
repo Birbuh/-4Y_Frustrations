@@ -1,0 +1,36 @@
+[package]
+name = "y4-frustrations"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+# UI
+bevy_egui = "0.42"
+bevy-inspector-egui = "0.37"
+
+# Input
+leafwing-input-manager = "0.21"
+
+# Data
+serde = { version = "1", features = ["derive"] }
+ron = "*"
+
+# Galaxy / route finding:
+petgraph = "*"
+
+# Deterministic simulation:
+rand = "*"
+rand_chacha = "*"
+
+# Utility
+thiserror = "*"
+tracing = "*"
+
+[dependencies.bevy]
+version = "0.19"
+features = [
+    "png",
+    "jpeg",
+    "wayland",
+    "2d"
+]
