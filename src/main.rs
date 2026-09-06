@@ -8,8 +8,9 @@ use bevy::{math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen};
 use crate::{
     map::{
         EntityPosInASector, Factions, IconType, MapCamera, MapIcon, MapPlugin, MapRoute, MapState,
-        MapVisible, Order, draw_sector, get_visible_map_objects, render_map_icons, render_routes,
-        spawn_sector,
+        MapVisible, Order, Velocity, draw_sector, fulfill_orders, get_visible_map_objects,
+        render_map_icons, render_routes, spawn_sector, toggle_pause, update_pos_from_velocity,
+        update_ship_pos,
     },
     ships::{Fighter, Ship, ShipType},
 };
@@ -17,17 +18,25 @@ use crate::{
 pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapState>>*/) {
     let owner = Factions::Petakians;
     let pos = DVec2::new(13., 17.);
-    let icon_type = IconType::Ship(ShipType::Fighter(Fighter::new(1, pos.clone(), owner, 100.)));
+    let icon_type = IconType::Ship(ShipType::Fighter(Fighter::new(
+        1,
+        pos.clone(),
+        owner,
+        33.,
+        3.,
+    )));
     commands
         .spawn((
             icon_type.clone(),
             owner,
             EntityPosInASector { sector: 1, pos },
             MapVisible,
+            Transform::from_translation(pos.clone().as_vec2().extend(0.)),
+            Velocity::ZERO,
         ))
         .with_children(|parent| {
             parent.spawn((
-                MapIcon::new(icon_type.clone(), map::RelationType::Friendly),
+                MapIcon::new(icon_type.clone(), map::RelationType::Enemy),
                 MapRoute::new(pos.clone(), DVec2::new(1000., 100.)),
                 Order::Fly,
             ));
@@ -54,12 +63,22 @@ fn main() {
         )
             .chain(),
     )
+    .add_systems(
+        FixedUpdate,
+        (
+            toggle_pause,
+            update_pos_from_velocity,
+            update_ship_pos,
+            fulfill_orders,
+        )
+            .chain(),
+    )
     .add_systems(Update, (render_routes, draw_sector))
     .add_plugins((
         DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
                 mode: BorderlessFullscreen(MonitorSelection::Primary),
-                title: "-4Y: Frustration. A game inspired by X series.".to_string(),
+                title: "-4Y: Frustration".to_string(),
                 ..default()
             }),
             close_when_requested: true,

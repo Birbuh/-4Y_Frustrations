@@ -15,7 +15,7 @@ impl Capacity {
 }
 
 pub trait Ship {
-    fn new(sector_id: u16, pos: DVec2, owner: Factions, max_vel: f32) -> Self;
+    fn new(sector_id: u16, pos: DVec2, owner: Factions, max_vel: f32, acceleration: f32) -> Self;
 
     // fn go_somewhere(&self, )
 }
@@ -26,16 +26,18 @@ pub struct Fighter {
     pub pos: DVec2, // IMPORTANT: This is the position INSIDE THE SECTOR, not the whole map.
     pub owner: Factions,
     pub max_vel: f32,
+    pub acceleration: f32,
     pub cargo: Vec<(ProductType, Capacity)>,
 }
 
 impl Ship for Fighter {
-    fn new(sector_id: u16, pos: DVec2, owner: Factions, max_vel: f32) -> Self {
+    fn new(sector_id: u16, pos: DVec2, owner: Factions, max_vel: f32, acceleration: f32) -> Self {
         Self {
             sector_id: Some(sector_id),
             pos,
             owner,
             max_vel,
+            acceleration,
             cargo: Vec::new(),
         }
     }

@@ -1,14 +1,26 @@
 use std::default;
 
 use bevy::{
-    camera::Camera2d, dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings}, ecs::resource::Resource, input::{
+    camera::Camera2d,
+    dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
+    ecs::resource::Resource,
+    input::{
         ButtonInput,
         keyboard::{Key::ColorF2Yellow, KeyCode},
         mouse::{AccumulatedMouseMotion, MouseWheel},
-    }, math::{DVec2, VectorSpace}, mesh::PrimitiveTopology::{LineList, LineStrip}, prelude::*, reflect::tuple_struct::TupleStructFieldIter, ui::Selected, window::PrimaryWindow,
+    },
+    math::{DVec2, VectorSpace},
+    mesh::PrimitiveTopology::{LineList, LineStrip},
+    prelude::*,
+    reflect::tuple_struct::TupleStructFieldIter,
+    ui::Selected,
+    window::PrimaryWindow,
 };
 
-use crate::{map, ships::{Fighter, Ship, ShipType}};
+use crate::{
+    map,
+    ships::{Fighter, Ship, ShipType},
+};
 
 pub struct MapPlugin;
 
@@ -101,7 +113,7 @@ impl MapIcon {
             relations_type,
         }
     }
-    
+
     pub fn get_pos(&self) -> DVec2 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -109,13 +121,21 @@ impl MapIcon {
             },
         }
     }
-    
+
     pub fn get_max_vel(&self) -> f32 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
                 ShipType::Fighter(fighter) => fighter.max_vel,
             },
-        } 
+        }
+    }
+
+    pub fn get_acceleration(&self) -> f32 {
+        match &self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.acceleration,
+            },
+        }
     }
 
     pub fn get_color(&self) -> Color {
@@ -186,13 +206,13 @@ impl VisibleMapObject {
     ) {
         let image: Handle<Image> = match &self.obj_type {
             IconType::Ship(ship_type) => match ship_type {
-                ShipType::Fighter(_) => asset_server.load("icons/fighter.png")
-            }
+                ShipType::Fighter(_) => asset_server.load("icons/fighter.png"),
+            },
         };
         commands.entity(self.entity).insert((
-            Transform::from_translation(self.map_pos.as_vec2().extend(0.)),
-            Velocity::ZERO,
-            Sprite::from_image(image)
+            // Transform::from_translation(self.map_pos.as_vec2().extend(0.)),
+            // Velocity::ZERO,
+            Sprite::from_image(image),
         ));
     }
 }
@@ -201,17 +221,60 @@ impl VisibleMapObject {
 
 #[derive(Component, Debug)]
 pub struct Velocity {
-    linvel: Vec2
+    linvel: Vec2,
 }
 
-pub fn update_pos_from_velocity(vel_transform_query: Query<(&Velocity, &mut Transform)>) {
+pub fn update_pos_from_velocity(vel_transform_query: Query<(&mut Velocity, &mut Transform)>) {
     for (vel, mut transform) in vel_transform_query {
-        transform.translation += vel.linvel.extend(0.)
+        transform.translation += vel.linvel.extend(0.);
     }
 }
 
 impl Velocity {
-    const ZERO: Self = Self { linvel: Vec2::ZERO };
+    pub const ZERO: Self = Self { linvel: Vec2::ZERO };
+
+    pub fn add_from_endpoint(
+        &mut self,
+        start_point: DVec2,
+        endpoint: DVec2,
+        max_speed: f32,
+        acceleration: f32,
+        time: &Res<Time>,
+    ) {
+        let direction = (endpoint - start_point).normalize().as_vec2();
+        self.linvel += direction * acceleration * time.delta_secs() as f32;
+
+        if self.linvel.length() > max_speed {
+            self.linvel = self.linvel.normalize() * max_speed;
+        }
+    }
+
+    pub fn brake(&mut self, acceleration: f32, time: &Res<Time>) {
+        let speed = self.linvel.length();
+        let new_speed = (speed - 4.2 * acceleration * time.delta_secs()).max(0.);
+
+        if speed > 0. {
+            self.linvel = self.linvel.normalize() * new_speed;
+        }
+    }
+}
+
+// ##################################################################### minor update functions.
+
+pub fn update_ship_pos(icon_q: Query<(&mut MapIcon, &ChildOf)>, transform_q: Query<&Transform>) {
+    for (mut icon, child_of) in icon_q {
+        let Ok(transform) = transform_q.get(child_of.parent()) else {
+            continue;
+        };
+
+        match &mut icon.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => {
+                    fighter.pos = transform.translation.truncate().as_dvec2()
+                }
+            },
+        }
+    }
 }
 
 // ##################################################################### updates the camera.
@@ -495,21 +558,52 @@ pub fn draw_sector(mut gizmos: Gizmos, sector_q: Query<(&Sector, &Factions)>) {
 
 // ##################################################### # # # ORDERS # # # ######################################################
 
+//temp
+#[derive(Resource)]
+pub struct Unpaused;
+pub fn toggle_pause(
+    mut commands: Commands,
+    keyboard: Res<ButtonInput<KeyCode>>,
+    is_unpaused: Option<Res<Unpaused>>,
+) {
+    if keyboard.just_pressed(KeyCode::Space) {
+        if let Some(_) = is_unpaused {
+            commands.remove_resource::<Unpaused>();
+        } else {
+            commands.insert_resource(Unpaused);
+        }
+    }
+}
+//temp
+
 // Fulfilling orders
 pub fn fulfill_orders(
     orders: Query<(&Order, &MapRoute, &MapIcon, &ChildOf)>,
-    map_icons: Query<(&IconType, &mut Velocity)>,
+    mut map_icons: Query<&mut Velocity>,
     time: Res<Time>,
+    _unpaused: If<Res<Unpaused>>,
 ) {
-    for (order, route, icon, child_of) in orders {
-        let parent = child_of.parent();
-        if let Ok((icon_type, mut vel)) = map_icons.get(parent) {
-            
-            let delta = time.delta();
-            
-            if icon.icon_type == *icon_type { // additional check
-                if vel.linvel.x < icon.get_max_vel() {
-                    
+    for (_order, route, icon, child_of) in orders {
+        if let Some(endpoint) = route.path_endpoints.last() {
+            let parent = child_of.parent();
+            if let Ok(mut vel) = map_icons.get_mut(parent) {
+                // getting the vars once so I don't have to call the funcs over and over again (and there's a match statement there :fear:)
+                let acceleration = icon.get_acceleration();
+                let max_vel = icon.get_max_vel();
+                let pos = icon.get_pos();
+                let distance_to_finish = (endpoint - pos).length();
+
+                println!("{distance_to_finish}");
+                // and the fun part!
+                let target_speed = (2. * acceleration * distance_to_finish as f32).sqrt().min(max_vel);
+                let current_speed = vel.linvel.length();
+                println!("####### {current_speed}; {target_speed}");
+                if distance_to_finish < 1. {
+                    vel.linvel = Vec2::ZERO;
+                } else if target_speed == max_vel {
+                    vel.add_from_endpoint(pos, *endpoint, max_vel, acceleration, &time);
+                } else {
+                    vel.brake(acceleration, &time);
                 }
             }
         }
