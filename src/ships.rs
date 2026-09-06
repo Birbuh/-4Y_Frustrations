@@ -14,6 +14,11 @@ impl Capacity {
     }
 }
 
+pub trait Ship {
+    fn new(sector_id: u16, pos: DVec2, owner: Factions) -> Self;
+
+    // fn go_somewhere(&self, )
+}
 
 #[derive(Component, Clone, Debug)]
 pub struct Fighter {
@@ -23,8 +28,8 @@ pub struct Fighter {
     pub cargo: Vec<(ProductType, Capacity)>,
 }
 
-impl Fighter {
-    pub fn new(sector_id: u16, pos: DVec2, owner: Factions) -> Self {
+impl Ship for Fighter {
+    fn new(sector_id: u16, pos: DVec2, owner: Factions) -> Self {
         Self {
             sector_id: Some(sector_id),
             pos,
@@ -32,6 +37,8 @@ impl Fighter {
             cargo: Vec::new(),
         }
     }
+
+    
 }
 
 #[derive(Clone, Debug)]
