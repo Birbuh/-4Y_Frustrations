@@ -17,7 +17,7 @@ use crate::{
 pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapState>>*/) {
     let owner = Factions::Petakians;
     let pos = DVec2::new(13., 17.);
-    let icon_type = IconType::Ship(ShipType::Fighter(Fighter::new(1, pos.clone(), owner)));
+    let icon_type = IconType::Ship(ShipType::Fighter(Fighter::new(1, pos.clone(), owner, 100.)));
     commands
         .spawn((
             icon_type.clone(),

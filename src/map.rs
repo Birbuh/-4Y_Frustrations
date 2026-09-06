@@ -1,25 +1,14 @@
 use std::default;
 
 use bevy::{
-    camera::Camera2d,
-    dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
-    ecs::resource::Resource,
-    input::{
+    camera::Camera2d, dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings}, ecs::resource::Resource, input::{
         ButtonInput,
         keyboard::{Key::ColorF2Yellow, KeyCode},
         mouse::{AccumulatedMouseMotion, MouseWheel},
-    },
-    math::DVec2,
-    mesh::PrimitiveTopology::{LineList, LineStrip},
-    prelude::*,
-    reflect::tuple_struct::TupleStructFieldIter,
-    ui::Selected,
-    window::PrimaryWindow,
+    }, math::{DVec2, VectorSpace}, mesh::PrimitiveTopology::{LineList, LineStrip}, prelude::*, reflect::tuple_struct::TupleStructFieldIter, ui::Selected, window::PrimaryWindow,
 };
 
-use crate::{
-    ships::{Fighter, ShipType, Ship},
-};
+use crate::{map, ships::{Fighter, Ship, ShipType}};
 
 pub struct MapPlugin;
 
@@ -33,7 +22,7 @@ impl Plugin for MapPlugin {
     }
 }
 
-#[derive(Component, Clone, Copy, Debug)]
+#[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub enum Factions {
     Petakians,
     Furgians,
@@ -43,12 +32,12 @@ impl Factions {
     pub fn get_color(&self) -> Color {
         match self {
             Self::Furgians => Color::srgb(0.5, 0.33, 0.01),
-            Self::Petakians => Color::srgb(0.77, 0.33, 0.67)
+            Self::Petakians => Color::srgb(0.77, 0.33, 0.67),
         }
     }
 }
 
-#[derive(Component, Clone, Debug)]
+#[derive(Component, Clone, Debug, PartialEq)]
 pub enum IconType {
     Ship(ShipType),
 }
@@ -109,15 +98,24 @@ impl MapIcon {
     pub fn new(icon_type: IconType, relations_type: RelationType) -> Self {
         Self {
             icon_type,
-            relations_type
+            relations_type,
         }
     }
+    
     pub fn get_pos(&self) -> DVec2 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
                 ShipType::Fighter(fighter) => fighter.pos,
             },
         }
+    }
+    
+    pub fn get_max_vel(&self) -> f32 {
+        match &self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.max_vel,
+            },
+        } 
     }
 
     pub fn get_color(&self) -> Color {
@@ -186,35 +184,34 @@ impl VisibleMapObject {
         faction: Factions,
         sector_id: u16,
     ) {
-        let (image, obj_type): (Handle<Image>, IconType) = match &self.obj_type {
+        let image: Handle<Image> = match &self.obj_type {
             IconType::Ship(ship_type) => match ship_type {
-                ShipType::Fighter(_) => (
-                    asset_server.load("icons/fighter.png"),
-                    IconType::Ship(ShipType::Fighter(Fighter::new(
-                        sector_id,
-                        self.map_pos,
-                        faction,
-                    ))),
-                ),
-            },
+                ShipType::Fighter(_) => asset_server.load("icons/fighter.png")
+            }
         };
-        let entity_commands = commands.spawn((
-            Sprite { image, ..default() },
+        commands.entity(self.entity).insert((
             Transform::from_translation(self.map_pos.as_vec2().extend(0.)),
-            EntityPosInASector {
-                sector: sector_id,
-                pos: self.map_pos,
-            },
-            match &obj_type {
-                IconType::Ship(ship_type) => match ship_type {
-                    ShipType::Fighter(fighter) => fighter.clone(),
-                },
-            },
+            Velocity::ZERO,
+            Sprite::from_image(image)
         ));
-        println!("Spawned!");
-
-        self.entity = entity_commands.id();
     }
+}
+
+// ##################################################################### custom velocity cuz why not
+
+#[derive(Component, Debug)]
+pub struct Velocity {
+    linvel: Vec2
+}
+
+pub fn update_pos_from_velocity(vel_transform_query: Query<(&Velocity, &mut Transform)>) {
+    for (vel, mut transform) in vel_transform_query {
+        transform.translation += vel.linvel.extend(0.)
+    }
+}
+
+impl Velocity {
+    const ZERO: Self = Self { linvel: Vec2::ZERO };
 }
 
 // ##################################################################### updates the camera.
@@ -446,10 +443,7 @@ impl MapRoute {
     }
 }
 
-pub fn render_routes(
-    mut gizmos: Gizmos,
-    route_q: Query<(&MapRoute, &MapIcon), With<Order>>,
-) {
+pub fn render_routes(mut gizmos: Gizmos, route_q: Query<(&MapRoute, &MapIcon), With<Order>>) {
     for (route, icon) in route_q {
         if let Some(start) = route.path_endpoints.first() {
             if let Some(end) = route.path_endpoints.last() {
@@ -471,23 +465,53 @@ pub struct Sector {
     pub radius: f64,
 }
 
-pub fn spawn_sector(mut commands: Commands) { // It's here, because it's always the same. It spawns when in MapState::Sector(_), the ID does nothing here.
-    let sectors = vec![
-        ( Sector { center: DVec2::new(0., 0.), radius: 6700. }, Factions::Furgians )
-    ];
+pub fn spawn_sector(mut commands: Commands) {
+    // It's here, because it's always the same. It spawns when in MapState::Sector(_), the ID does nothing here.
+    let sectors = vec![(
+        Sector {
+            center: DVec2::new(0., 0.),
+            radius: 6700.,
+        },
+        Factions::Furgians,
+    )];
     for (sector, owner) in sectors {
         commands.spawn((
             sector.clone(),
             owner.clone(),
-            Transform::from_translation(sector.center.as_vec2().extend(0.).clone())
+            Transform::from_translation(sector.center.as_vec2().extend(0.).clone()),
         ));
     }
 }
 
 pub fn draw_sector(mut gizmos: Gizmos, sector_q: Query<(&Sector, &Factions)>) {
     for (sector, owner) in sector_q {
-        gizmos.circle_2d(Isometry2d::from_xy(sector.center.x as f32, sector.center.y as f32), sector.radius as f32, owner.get_color());
+        gizmos.circle_2d(
+            Isometry2d::from_xy(sector.center.x as f32, sector.center.y as f32),
+            sector.radius as f32,
+            owner.get_color(),
+        );
     }
 }
 
 // ##################################################### # # # ORDERS # # # ######################################################
+
+// Fulfilling orders
+pub fn fulfill_orders(
+    orders: Query<(&Order, &MapRoute, &MapIcon, &ChildOf)>,
+    map_icons: Query<(&IconType, &mut Velocity)>,
+    time: Res<Time>,
+) {
+    for (order, route, icon, child_of) in orders {
+        let parent = child_of.parent();
+        if let Ok((icon_type, mut vel)) = map_icons.get(parent) {
+            
+            let delta = time.delta();
+            
+            if icon.icon_type == *icon_type { // additional check
+                if vel.linvel.x < icon.get_max_vel() {
+                    
+                }
+            }
+        }
+    }
+}
