@@ -600,10 +600,10 @@ pub fn fulfill_orders(
                 println!("####### {current_speed}; {target_speed}");
                 if distance_to_finish < 1. {
                     vel.linvel = Vec2::ZERO;
-                } else if target_speed == max_vel {
-                    vel.add_from_endpoint(pos, *endpoint, max_vel, acceleration, &time);
-                } else {
+                } else if distance_to_finish <= current_speed as f64 * 42. {
                     vel.brake(acceleration, &time);
+                } else {
+                    vel.add_from_endpoint(pos, *endpoint, max_vel, acceleration, &time);
                 }
             }
         }

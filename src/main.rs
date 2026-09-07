@@ -22,8 +22,8 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         1,
         pos.clone(),
         owner,
-        33.,
-        3.,
+        100.,
+        30.,
     )));
     commands
         .spawn((
@@ -37,7 +37,7 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         .with_children(|parent| {
             parent.spawn((
                 MapIcon::new(icon_type.clone(), map::RelationType::Enemy),
-                MapRoute::new(pos.clone(), DVec2::new(1000., 100.)),
+                MapRoute::new(pos.clone(), DVec2::new(2070., -2800.)),
                 Order::Fly,
             ));
         });
