@@ -1,4 +1,4 @@
-use std::default;
+use std::{default, f64::consts::FRAC_PI_2};
 
 use bevy::{
     camera::Camera2d,
@@ -276,6 +276,11 @@ pub fn update_ship_pos(icon_q: Query<(&mut MapIcon, &ChildOf)>, transform_q: Que
         }
     }
 }
+
+// ##################################################################### some minor markers and other stuff (bevy)
+
+#[derive(Component, Debug)]
+pub struct Rotated;
 
 // ##################################################################### updates the camera.
 
@@ -578,19 +583,40 @@ pub fn toggle_pause(
 
 // Fulfilling orders
 pub fn fulfill_orders(
-    orders: Query<(&Order, &MapRoute, &MapIcon, &ChildOf)>,
+    mut commands: Commands,
+    orders: Query<(Entity, &Order, &MapRoute, &MapIcon, &ChildOf)>,
     mut map_icons: Query<&mut Velocity>,
+    mut transform_q: Query<&mut Transform, Without<Rotated>>,
     time: Res<Time>,
     _unpaused: If<Res<Unpaused>>,
 ) {
-    for (_order, route, icon, child_of) in orders {
+    for (entity, _order, route, icon, child_of) in orders {
+        // This also checks if route isn't empty.
         if let Some(endpoint) = route.path_endpoints.last() {
             let parent = child_of.parent();
+            let pos = icon.get_pos();
+            let acceleration = icon.get_acceleration();
+            if let Ok(mut transform) = transform_q.get_mut(parent) {
+                let direction = endpoint - pos;
+                let target_angle = Quat::from_rotation_z((direction.y.atan2(direction.x) - FRAC_PI_2) as f32);
+                let current_angle = transform.rotation;
+                if target_angle != current_angle {
+                    let default_angle = Quat::from_rotation_z(10. * (acceleration / 3.));
+                    let (_, _, sum_angle) = (current_angle + default_angle).to_euler(EulerRot::XYZ); 
+                    if sum_angle <= target_angle.to_euler(EulerRot::XYZ).2 /* 2 means Z */ {
+                        transform.rotate_z(sum_angle);
+                    } else {
+                        transform.rotation = target_angle
+                    }
+
+                } else {
+                    commands.entity(parent).insert(Rotated);
+                }
+                return
+            }
             if let Ok(mut vel) = map_icons.get_mut(parent) {
                 // getting the vars once so I don't have to call the funcs over and over again (and there's a match statement there :fear:)
-                let acceleration = icon.get_acceleration();
                 let max_vel = icon.get_max_vel();
-                let pos = icon.get_pos();
                 let distance_to_finish = (endpoint - pos).length();
 
                 println!("{distance_to_finish}");
@@ -600,6 +626,8 @@ pub fn fulfill_orders(
                 println!("####### {current_speed}; {target_speed}");
                 if distance_to_finish < 1. {
                     vel.linvel = Vec2::ZERO;
+                    commands.entity(parent).remove::<Rotated>();
+                    commands.entity(entity).remove::<MapRoute>();
                 } else if distance_to_finish <= current_speed as f64 * 42. {
                     vel.brake(acceleration, &time);
                 } else {
