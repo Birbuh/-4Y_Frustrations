@@ -1,4 +1,8 @@
-use std::{default, f64::consts::FRAC_PI_2};
+use std::{
+    default,
+    f32::consts::{PI, TAU},
+    f64::consts::FRAC_PI_2,
+};
 
 use bevy::{
     camera::Camera2d,
@@ -18,7 +22,6 @@ use bevy::{
 };
 
 use crate::{
-    map,
     ships::{Fighter, Ship, ShipType},
 };
 
@@ -54,6 +57,7 @@ pub enum IconType {
     Ship(ShipType),
 }
 
+#[derive(Debug, Component, Clone)]
 pub enum RelationType {
     Enemy,
     Unfriendly,
@@ -194,6 +198,7 @@ pub struct VisibleMapObject {
     pub obj_type: IconType,
     pub faction: Factions,
     pub sector_id: u16,
+    pub relationship: RelationType,
 }
 
 impl VisibleMapObject {
@@ -203,10 +208,16 @@ impl VisibleMapObject {
         asset_server: &AssetServer,
         faction: Factions,
         sector_id: u16,
+        relation_type: RelationType,
     ) {
+        let ship_path = match relation_type {
+            RelationType::Enemy => "icons/fighter_enemy.png",
+            RelationType::Ally => "icons/fighter_ally.png",
+            sth => { println!("oops! {sth:?} isn't implemented yet!"); return }
+        };
         let image: Handle<Image> = match &self.obj_type {
             IconType::Ship(ship_type) => match ship_type {
-                ShipType::Fighter(_) => asset_server.load("icons/fighter.png"),
+                ShipType::Fighter(_) => asset_server.load(ship_path),
             },
         };
         commands.entity(self.entity).insert((
@@ -423,14 +434,14 @@ pub struct VisibleMapObjects {
 pub fn get_visible_map_objects(
     mut commands: Commands,
     current_state: Res<State<MapState>>,
-    entities: Query<(Entity, &EntityPosInASector, &IconType, &Factions), With<MapVisible>>,
+    entities: Query<(Entity, &EntityPosInASector, &IconType, &Factions, &RelationType), With<MapVisible>>,
     camera: Res<MapCamera>,
 ) {
     let mut visible_objects: Vec<VisibleMapObject> = Vec::new();
     match *current_state.get() {
         MapState::Universe => {}
         MapState::Sector(sector_id) => {
-            for (entity, pos, obj_type, faction) in entities {
+            for (entity, pos, obj_type, faction, relationship) in entities {
                 if pos.sector == sector_id {
                     let screen_pos = map_to_screen(pos.pos, &camera);
                     visible_objects.push(VisibleMapObject {
@@ -440,6 +451,7 @@ pub fn get_visible_map_objects(
                         obj_type: obj_type.clone(),
                         faction: *faction,
                         sector_id,
+                        relationship: relationship.clone(),
                     });
                 }
             }
@@ -482,6 +494,7 @@ pub fn render_map_icons(
                 &asset_server,
                 object.faction,
                 object.sector_id,
+                object.relationship.clone(),
             );
         }
     }
@@ -596,38 +609,50 @@ pub fn fulfill_orders(
             let parent = child_of.parent();
             let pos = icon.get_pos();
             let acceleration = icon.get_acceleration();
+            
             if let Ok(mut transform) = transform_q.get_mut(parent) {
                 let direction = endpoint - pos;
-                let target_angle = Quat::from_rotation_z((direction.y.atan2(direction.x) - FRAC_PI_2) as f32);
-                let current_angle = transform.rotation;
-                if target_angle != current_angle {
-                    let default_angle = Quat::from_rotation_z(10. * (acceleration / 3.));
-                    let (_, _, sum_angle) = (current_angle + default_angle).to_euler(EulerRot::XYZ); 
-                    if sum_angle <= target_angle.to_euler(EulerRot::XYZ).2 /* 2 means Z */ {
-                        transform.rotate_z(sum_angle);
+                
+                let target_angle_quat =
+                    Quat::from_rotation_z((direction.y.atan2(direction.x) - FRAC_PI_2) as f32);
+                
+                let (_, _, target_angle) = target_angle_quat.to_euler(EulerRot::XYZ);
+                let (_, _, current_angle) = transform.rotation.to_euler(EulerRot::XYZ);
+                let (_, _, default_angle) =
+                    Quat::from_rotation_z(2. * time.delta_secs()).to_euler(EulerRot::XYZ);
+                
+                let angle_diff = (target_angle - current_angle + PI).rem_euclid(TAU) - PI;
+                
+                if angle_diff > 0. {
+                    if !(angle_diff > -0.1 && angle_diff < 0.1) {
+                        transform.rotate_z(default_angle);
                     } else {
-                        transform.rotation = target_angle
+                        transform.rotation = target_angle_quat;
+                    }
+                    
+                } else if angle_diff < 0. {
+                    if !(angle_diff > -0.1 && angle_diff < 0.1) {
+                        transform.rotate_z(-default_angle);
+                    } else {
+                        transform.rotation = target_angle_quat;
                     }
 
                 } else {
                     commands.entity(parent).insert(Rotated);
                 }
-                return
+                continue;
             }
             if let Ok(mut vel) = map_icons.get_mut(parent) {
-                // getting the vars once so I don't have to call the funcs over and over again (and there's a match statement there :fear:)
                 let max_vel = icon.get_max_vel();
                 let distance_to_finish = (endpoint - pos).length();
 
-                println!("{distance_to_finish}");
                 // and the fun part!
-                let target_speed = (2. * acceleration * distance_to_finish as f32).sqrt().min(max_vel);
                 let current_speed = vel.linvel.length();
-                println!("####### {current_speed}; {target_speed}");
                 if distance_to_finish < 1. {
-                    vel.linvel = Vec2::ZERO;
+                    vel.linvel = (endpoint - pos).normalize().as_vec2() / 33.;
                     commands.entity(parent).remove::<Rotated>();
                     commands.entity(entity).remove::<MapRoute>();
+                    
                 } else if distance_to_finish <= current_speed as f64 * 42. {
                     vel.brake(acceleration, &time);
                 } else {

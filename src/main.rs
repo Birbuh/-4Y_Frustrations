@@ -7,12 +7,8 @@ use bevy::{math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen};
 
 use crate::{
     map::{
-        EntityPosInASector, Factions, IconType, MapCamera, MapIcon, MapPlugin, MapRoute, MapState,
-        MapVisible, Order, Velocity, draw_sector, fulfill_orders, get_visible_map_objects,
-        render_map_icons, render_routes, spawn_sector, toggle_pause, update_pos_from_velocity,
-        update_ship_pos,
-    },
-    ships::{Fighter, Ship, ShipType},
+        EntityPosInASector, Factions, IconType, MapCamera, MapIcon, MapPlugin, MapRoute, MapState, MapVisible, Order, RelationType, Velocity, draw_sector, fulfill_orders, get_visible_map_objects, render_map_icons, render_routes, spawn_sector, toggle_pause, update_pos_from_velocity, update_ship_pos,
+    }, ships::{Fighter, Ship, ShipType},
 };
 
 pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapState>>*/) {
@@ -33,6 +29,7 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
             MapVisible,
             Transform::from_translation(pos.clone().as_vec2().extend(0.)),
             Velocity::ZERO,
+            RelationType::Enemy,
         ))
         .with_children(|parent| {
             parent.spawn((
@@ -42,6 +39,32 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
             ));
         });
 
+    let owner = Factions::Furgians;
+    let pos = DVec2::new(-333., 37.);
+    let icon_type = IconType::Ship(ShipType::Fighter(Fighter::new(
+        1,
+        pos.clone(),
+        owner,
+        150.,
+        33.,
+    )));
+    commands
+        .spawn((
+            icon_type.clone(),
+            owner,
+            EntityPosInASector { sector: 1, pos },
+            MapVisible,
+            Transform::from_translation(pos.clone().as_vec2().extend(0.)),
+            Velocity::ZERO,
+            RelationType::Ally,
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                MapIcon::new(icon_type.clone(), map::RelationType::Ally),
+                MapRoute::new(pos.clone(), DVec2::new(4370., 200.)),
+                Order::Fly,
+            ));
+        });
     commands.spawn(Camera2d);
     // next_state.set(MapState::Sector(1));
 }
