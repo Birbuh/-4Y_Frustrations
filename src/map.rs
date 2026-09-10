@@ -1,24 +1,13 @@
 use std::{
-    default,
-    f32::consts::{PI, TAU},
-    f64::consts::FRAC_PI_2,
+    default, f32::consts::{PI, TAU}, f64::consts::FRAC_PI_2, process::Child,
 };
 
 use bevy::{
-    camera::Camera2d,
-    dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
-    ecs::resource::Resource,
-    input::{
+    camera::Camera2d, dev_tools::{diagnostics_overlay::DiagnosticsOverlayStatistic, infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings}}, ecs::resource::Resource, input::{
         ButtonInput,
         keyboard::{Key::ColorF2Yellow, KeyCode},
         mouse::{AccumulatedMouseMotion, MouseWheel},
-    },
-    math::{DVec2, VectorSpace},
-    mesh::PrimitiveTopology::{LineList, LineStrip},
-    prelude::*,
-    reflect::tuple_struct::TupleStructFieldIter,
-    ui::Selected,
-    window::PrimaryWindow,
+    }, math::{DVec2, VectorSpace}, mesh::PrimitiveTopology::{LineList, LineStrip}, prelude::*, reflect::tuple_struct::TupleStructFieldIter, ui::Selected, window::PrimaryWindow,
 };
 
 use crate::{
@@ -39,15 +28,17 @@ impl Plugin for MapPlugin {
 
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub enum Factions {
-    Petakians,
-    Furgians,
+    TestAlly,
+    TestEnemy,
+    Player
 }
 
 impl Factions {
     pub fn get_color(&self) -> Color {
         match self {
-            Self::Furgians => Color::srgb(0.5, 0.33, 0.01),
-            Self::Petakians => Color::srgb(0.77, 0.33, 0.67),
+            Self::TestAlly => Color::srgb(0.5, 0.33, 0.01),
+            Self::TestEnemy => Color::srgb(0.77, 0.33, 0.67),
+            Self::Player => Color::srgb(0.1, 1., 0.1),
         }
     }
 }
@@ -103,7 +94,7 @@ pub struct EntityPosInASector {
     pub pos: DVec2,
 }
 
-#[derive(Component)]
+#[derive(Component, Debug)]
 pub struct MapIcon {
     // pub size: f32,
     pub icon_type: IconType,
@@ -124,6 +115,14 @@ impl MapIcon {
                 ShipType::Fighter(fighter) => fighter.pos,
             },
         }
+    }
+
+    pub fn update_pos(&mut self, amount: DVec2) {
+        match &mut self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.pos += amount,
+            },
+        };
     }
 
     pub fn get_max_vel(&self) -> f32 {
@@ -213,6 +212,7 @@ impl VisibleMapObject {
         let ship_path = match relation_type {
             RelationType::Enemy => "icons/fighter_enemy.png",
             RelationType::Ally => "icons/fighter_ally.png",
+            RelationType::Player => "icons/fighter_player.png",
             sth => { println!("oops! {sth:?} isn't implemented yet!"); return }
         };
         let image: Handle<Image> = match &self.obj_type {
@@ -223,6 +223,7 @@ impl VisibleMapObject {
         commands.entity(self.entity).insert((
             // Transform::from_translation(self.map_pos.as_vec2().extend(0.)),
             // Velocity::ZERO,
+            MapSelectable { selection_radius: 33.5 },
             Sprite::from_image(image),
         ));
     }
@@ -235,9 +236,14 @@ pub struct Velocity {
     linvel: Vec2,
 }
 
-pub fn update_pos_from_velocity(vel_transform_query: Query<(&mut Velocity, &mut Transform)>) {
-    for (vel, mut transform) in vel_transform_query {
+pub fn update_pos_from_velocity(mut vel_transform_query: Query<(&mut Velocity, &mut Transform)>, children_q: Query<(&mut MapIcon, &ChildOf)>) {
+    for (vel, mut transform) in &mut vel_transform_query {
         transform.translation += vel.linvel.extend(0.);
+    }
+    for (mut map_icon, child_of) in children_q {
+        if let Ok((vel, _)) = &vel_transform_query.get(child_of.0) {
+            map_icon.update_pos(vel.linvel.as_dvec2());
+        }
     }
 }
 
@@ -292,6 +298,17 @@ pub fn update_ship_pos(icon_q: Query<(&mut MapIcon, &ChildOf)>, transform_q: Que
 
 #[derive(Component, Debug)]
 pub struct Rotated;
+
+// ##################################################################### some minor helper functions
+
+pub fn check_if_clicked_inside_an_object(object_center: DVec2, click: DVec2, add_x: f64, add_y: f64) -> bool {
+    let condition_left = object_center.x - add_x < click.x;
+    let condition_right = object_center.x + add_x > click.x;
+    let condition_down = object_center.y - add_y < click.y;
+    let condition_up = object_center.y + add_y > click.y;
+
+    condition_down && condition_up && condition_left && condition_right
+}
 
 // ##################################################################### updates the camera.
 
@@ -368,7 +385,7 @@ pub fn map_to_screen(
 pub fn screen_to_map(
     // from screen (visualisation) to map (simulation)
     screen_pos: Vec2,
-    camera: MapCamera,
+    camera: &MapCamera,
 ) -> DVec2 {
     let mut pos = DVec2 {
         x: screen_pos.x as f64,
@@ -553,7 +570,7 @@ pub fn spawn_sector(mut commands: Commands) {
             center: DVec2::new(0., 0.),
             radius: 6700.,
         },
-        Factions::Furgians,
+        Factions::TestAlly,
     )];
     for (sector, owner) in sectors {
         commands.spawn((
@@ -594,6 +611,19 @@ pub fn toggle_pause(
 }
 //temp
 
+// making orders!!1!!
+pub fn order(mut commands: Commands, selected_q: Query<(Entity, &MapIcon), With<MapIconSelected>>, cursor: Res<MapCursor>, mouse: Res<ButtonInput<MouseButton>>) {
+    if mouse.just_pressed(MouseButton::Left) {
+        for (entity, icon) in selected_q {
+            let pos = icon.get_pos();
+            commands.entity(entity).insert((
+                MapRoute::new(pos, cursor.pos),
+                Order::Fly,
+            ));
+        }
+    }
+}
+
 // Fulfilling orders
 pub fn fulfill_orders(
     mut commands: Commands,
@@ -609,27 +639,27 @@ pub fn fulfill_orders(
             let parent = child_of.parent();
             let pos = icon.get_pos();
             let acceleration = icon.get_acceleration();
-            
+
             if let Ok(mut transform) = transform_q.get_mut(parent) {
                 let direction = endpoint - pos;
-                
+
                 let target_angle_quat =
                     Quat::from_rotation_z((direction.y.atan2(direction.x) - FRAC_PI_2) as f32);
-                
+
                 let (_, _, target_angle) = target_angle_quat.to_euler(EulerRot::XYZ);
                 let (_, _, current_angle) = transform.rotation.to_euler(EulerRot::XYZ);
                 let (_, _, default_angle) =
                     Quat::from_rotation_z(2. * time.delta_secs()).to_euler(EulerRot::XYZ);
-                
+
                 let angle_diff = (target_angle - current_angle + PI).rem_euclid(TAU) - PI;
-                
+
                 if angle_diff > 0. {
                     if !(angle_diff > -0.1 && angle_diff < 0.1) {
                         transform.rotate_z(default_angle);
                     } else {
                         transform.rotation = target_angle_quat;
                     }
-                    
+
                 } else if angle_diff < 0. {
                     if !(angle_diff > -0.1 && angle_diff < 0.1) {
                         transform.rotate_z(-default_angle);
@@ -652,12 +682,45 @@ pub fn fulfill_orders(
                     vel.linvel = (endpoint - pos).normalize().as_vec2() / 33.;
                     commands.entity(parent).remove::<Rotated>();
                     commands.entity(entity).remove::<MapRoute>();
-                    
+
                 } else if distance_to_finish <= current_speed as f64 * 42. {
                     vel.brake(acceleration, &time);
                 } else {
                     vel.add_from_endpoint(pos, *endpoint, max_vel, acceleration, &time);
                 }
+            }
+        }
+    }
+}
+
+
+// ##################################################### # # # SELECTIONS # # # ######################################################
+
+#[derive(Resource, Debug)]
+pub struct MapCursor {
+    pub pos: DVec2
+}
+
+#[derive(Component, Debug)]
+pub struct MapIconSelected;
+
+pub fn update_cursor_pos(mut cursor: ResMut<MapCursor>, windows: Query<&Window, With<PrimaryWindow>>, camera: Res<MapCamera>) {
+    for window in windows {
+        if let Some(current_cursor_pos) = window.cursor_position() {
+            cursor.pos = screen_to_map(current_cursor_pos, &camera);
+        }
+    }
+}
+
+pub fn select(mut commands: Commands, selected_q: Query<(Entity, &MapIcon), Without<MapIconSelected>>, cursor: Res<MapCursor>, mouse: Res<ButtonInput<MouseButton>>) {
+    if mouse.just_pressed(MouseButton::Left) {
+        println!("### ### {}", cursor.pos);
+        for (entity, icon) in selected_q {
+            let icon_pos = icon.get_pos();
+            println!("### ### ### #### {icon_pos}");
+            if check_if_clicked_inside_an_object(icon_pos, cursor.pos, 20., 20.) {
+                println!("SELECTED A SHIP.");
+                commands.entity(entity).insert(MapIconSelected);
             }
         }
     }
