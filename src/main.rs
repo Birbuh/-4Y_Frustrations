@@ -3,11 +3,7 @@ mod map;
 mod products;
 mod ships;
 
-use bevy::{
-    math::{DVec2},
-    prelude::*,
-    window::WindowMode::BorderlessFullscreen,
-};
+use bevy::{math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen};
 
 use crate::{
     map::{
@@ -128,15 +124,7 @@ fn main() {
         )
             .chain(),
     )
-    .add_systems(
-        Update, 
-        (
-            select, 
-            order, 
-            render_routes, 
-            draw_sector
-        )
-    )
+    .add_systems(Update, (select, order, render_routes, draw_sector))
     .add_plugins((
         DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {

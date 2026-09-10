@@ -649,7 +649,7 @@ pub fn toggle_pause(
 // making orders!!1!!
 pub fn order(
     mut commands: Commands,
-    selected_q: Query<(Entity, &MapIcon, &ChildOf), With<MapIconSelected>>,
+    selected_q: Query<(Entity, &MapIcon, &ChildOf), (With<MapIconSelected>, Without<Order>)>,
     cursor: Res<MapCursor>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut vel_q: Query<&mut Velocity>,
@@ -760,18 +760,21 @@ pub fn update_cursor_pos(
 
 pub fn select(
     mut commands: Commands,
-    selected_q: Query<(Entity, &MapIcon), Without<MapIconSelected>>,
+    unselected_q: Query<(Entity, &MapIcon), Without<MapIconSelected>>,
+    selected_q: Query<Entity, With<MapIconSelected>>,
     cursor: Res<MapCursor>,
     mouse: Res<ButtonInput<MouseButton>>,
 ) {
     if mouse.just_pressed(MouseButton::Left) {
-        println!("### ### {}", cursor.pos);
-        for (entity, icon) in selected_q {
+        for entity in selected_q {
+            commands.entity(entity).remove::<MapIconSelected>();
+        }
+        for (entity, icon) in unselected_q {
             let icon_pos = icon.get_pos();
-            println!("### ### ### #### {icon_pos}");
             if check_if_clicked_inside_an_object(icon_pos, cursor.pos, 20., 20.) {
                 println!("SELECTED A SHIP.");
                 commands.entity(entity).insert(MapIconSelected);
+                return
             }
         }
     }

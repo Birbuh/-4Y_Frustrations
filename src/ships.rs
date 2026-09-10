@@ -10,7 +10,10 @@ pub struct Capacity {
 
 impl Capacity {
     pub fn new(capacity: f32) -> Self {
-        Self { max_capacity: capacity, used_capacity: 0. }
+        Self {
+            max_capacity: capacity,
+            used_capacity: 0.,
+        }
     }
 }
 
@@ -41,8 +44,6 @@ impl Ship for Fighter {
             cargo: Vec::new(),
         }
     }
-
-    
 }
 
 #[derive(Clone, Debug, PartialEq)]
