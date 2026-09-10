@@ -1,18 +1,31 @@
 use std::{
-    default, f32::consts::{PI, TAU}, f64::consts::FRAC_PI_2, process::Child,
+    default,
+    f32::consts::{PI, TAU},
+    f64::consts::FRAC_PI_2,
+    process::Child,
 };
 
 use bevy::{
-    camera::Camera2d, dev_tools::{diagnostics_overlay::DiagnosticsOverlayStatistic, infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings}}, ecs::resource::Resource, input::{
+    camera::Camera2d,
+    dev_tools::{
+        diagnostics_overlay::DiagnosticsOverlayStatistic,
+        infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
+    },
+    ecs::resource::Resource,
+    input::{
         ButtonInput,
         keyboard::{Key::ColorF2Yellow, KeyCode},
         mouse::{AccumulatedMouseMotion, MouseWheel},
-    }, math::{DVec2, VectorSpace}, mesh::PrimitiveTopology::{LineList, LineStrip}, prelude::*, reflect::tuple_struct::TupleStructFieldIter, ui::Selected, window::PrimaryWindow,
+    },
+    math::{DVec2, VectorSpace},
+    mesh::PrimitiveTopology::{LineList, LineStrip},
+    prelude::*,
+    reflect::tuple_struct::TupleStructFieldIter,
+    ui::Selected,
+    window::PrimaryWindow,
 };
 
-use crate::{
-    ships::{Fighter, Ship, ShipType},
-};
+use crate::ships::{Fighter, Ship, ShipType};
 
 pub struct MapPlugin;
 
@@ -30,7 +43,7 @@ impl Plugin for MapPlugin {
 pub enum Factions {
     TestAlly,
     TestEnemy,
-    Player
+    Player,
 }
 
 impl Factions {
@@ -213,7 +226,10 @@ impl VisibleMapObject {
             RelationType::Enemy => "icons/fighter_enemy.png",
             RelationType::Ally => "icons/fighter_ally.png",
             RelationType::Player => "icons/fighter_player.png",
-            sth => { println!("oops! {sth:?} isn't implemented yet!"); return }
+            sth => {
+                println!("oops! {sth:?} isn't implemented yet!");
+                return;
+            }
         };
         let image: Handle<Image> = match &self.obj_type {
             IconType::Ship(ship_type) => match ship_type {
@@ -223,7 +239,9 @@ impl VisibleMapObject {
         commands.entity(self.entity).insert((
             // Transform::from_translation(self.map_pos.as_vec2().extend(0.)),
             // Velocity::ZERO,
-            MapSelectable { selection_radius: 33.5 },
+            MapSelectable {
+                selection_radius: 33.5,
+            },
             Sprite::from_image(image),
         ));
     }
@@ -236,7 +254,10 @@ pub struct Velocity {
     linvel: Vec2,
 }
 
-pub fn update_pos_from_velocity(mut vel_transform_query: Query<(&mut Velocity, &mut Transform)>, children_q: Query<(&mut MapIcon, &ChildOf)>) {
+pub fn update_pos_from_velocity(
+    mut vel_transform_query: Query<(&mut Velocity, &mut Transform)>,
+    children_q: Query<(&mut MapIcon, &ChildOf)>,
+) {
     for (vel, mut transform) in &mut vel_transform_query {
         transform.translation += vel.linvel.extend(0.);
     }
@@ -301,7 +322,12 @@ pub struct Rotated;
 
 // ##################################################################### some minor helper functions
 
-pub fn check_if_clicked_inside_an_object(object_center: DVec2, click: DVec2, add_x: f64, add_y: f64) -> bool {
+pub fn check_if_clicked_inside_an_object(
+    object_center: DVec2,
+    click: DVec2,
+    add_x: f64,
+    add_y: f64,
+) -> bool {
     let condition_left = object_center.x - add_x < click.x;
     let condition_right = object_center.x + add_x > click.x;
     let condition_down = object_center.y - add_y < click.y;
@@ -451,7 +477,16 @@ pub struct VisibleMapObjects {
 pub fn get_visible_map_objects(
     mut commands: Commands,
     current_state: Res<State<MapState>>,
-    entities: Query<(Entity, &EntityPosInASector, &IconType, &Factions, &RelationType), With<MapVisible>>,
+    entities: Query<
+        (
+            Entity,
+            &EntityPosInASector,
+            &IconType,
+            &Factions,
+            &RelationType,
+        ),
+        With<MapVisible>,
+    >,
     camera: Res<MapCamera>,
 ) {
     let mut visible_objects: Vec<VisibleMapObject> = Vec::new();
@@ -612,14 +647,24 @@ pub fn toggle_pause(
 //temp
 
 // making orders!!1!!
-pub fn order(mut commands: Commands, selected_q: Query<(Entity, &MapIcon), With<MapIconSelected>>, cursor: Res<MapCursor>, mouse: Res<ButtonInput<MouseButton>>) {
+pub fn order(
+    mut commands: Commands,
+    selected_q: Query<(Entity, &MapIcon, &ChildOf), With<MapIconSelected>>,
+    cursor: Res<MapCursor>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    mut vel_q: Query<&mut Velocity>,
+) {
     if mouse.just_pressed(MouseButton::Left) {
-        for (entity, icon) in selected_q {
+        for (entity, icon, child_of) in selected_q {
             let pos = icon.get_pos();
-            commands.entity(entity).insert((
-                MapRoute::new(pos, cursor.pos),
-                Order::Fly,
-            ));
+
+            if let Ok(mut vel) = vel_q.get_mut(child_of.0) {
+                vel.linvel = Vec2::ZERO;
+            }
+            
+            commands
+                .entity(entity)
+                .insert((MapRoute::new(pos, cursor.pos), Order::Fly));
         }
     }
 }
@@ -659,14 +704,12 @@ pub fn fulfill_orders(
                     } else {
                         transform.rotation = target_angle_quat;
                     }
-
                 } else if angle_diff < 0. {
                     if !(angle_diff > -0.1 && angle_diff < 0.1) {
                         transform.rotate_z(-default_angle);
                     } else {
                         transform.rotation = target_angle_quat;
                     }
-
                 } else {
                     commands.entity(parent).insert(Rotated);
                 }
@@ -682,7 +725,7 @@ pub fn fulfill_orders(
                     vel.linvel = (endpoint - pos).normalize().as_vec2() / 33.;
                     commands.entity(parent).remove::<Rotated>();
                     commands.entity(entity).remove::<MapRoute>();
-
+                    commands.entity(entity).remove::<Order>();
                 } else if distance_to_finish <= current_speed as f64 * 42. {
                     vel.brake(acceleration, &time);
                 } else {
@@ -693,18 +736,21 @@ pub fn fulfill_orders(
     }
 }
 
-
 // ##################################################### # # # SELECTIONS # # # ######################################################
 
 #[derive(Resource, Debug)]
 pub struct MapCursor {
-    pub pos: DVec2
+    pub pos: DVec2,
 }
 
 #[derive(Component, Debug)]
 pub struct MapIconSelected;
 
-pub fn update_cursor_pos(mut cursor: ResMut<MapCursor>, windows: Query<&Window, With<PrimaryWindow>>, camera: Res<MapCamera>) {
+pub fn update_cursor_pos(
+    mut cursor: ResMut<MapCursor>,
+    windows: Query<&Window, With<PrimaryWindow>>,
+    camera: Res<MapCamera>,
+) {
     for window in windows {
         if let Some(current_cursor_pos) = window.cursor_position() {
             cursor.pos = screen_to_map(current_cursor_pos, &camera);
@@ -712,7 +758,12 @@ pub fn update_cursor_pos(mut cursor: ResMut<MapCursor>, windows: Query<&Window, 
     }
 }
 
-pub fn select(mut commands: Commands, selected_q: Query<(Entity, &MapIcon), Without<MapIconSelected>>, cursor: Res<MapCursor>, mouse: Res<ButtonInput<MouseButton>>) {
+pub fn select(
+    mut commands: Commands,
+    selected_q: Query<(Entity, &MapIcon), Without<MapIconSelected>>,
+    cursor: Res<MapCursor>,
+    mouse: Res<ButtonInput<MouseButton>>,
+) {
     if mouse.just_pressed(MouseButton::Left) {
         println!("### ### {}", cursor.pos);
         for (entity, icon) in selected_q {
