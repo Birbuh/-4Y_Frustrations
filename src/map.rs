@@ -1,31 +1,16 @@
 use std::{
-    default,
-    f32::consts::{PI, TAU},
-    f64::consts::FRAC_PI_2,
-    process::Child,
+    f32::consts::{PI, TAU}, f64::consts::FRAC_PI_2, mem::transmute, os::unix::process::parent_id,
 };
 
 use bevy::{
-    camera::Camera2d,
-    dev_tools::{
-        diagnostics_overlay::DiagnosticsOverlayStatistic,
-        infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
-    },
-    ecs::resource::Resource,
-    input::{
+    camera::Camera2d, dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings}, ecs::{resource::Resource, system::entity_command::despawn}, input::{
         ButtonInput,
-        keyboard::{Key::ColorF2Yellow, KeyCode},
+        keyboard::KeyCode,
         mouse::{AccumulatedMouseMotion, MouseWheel},
-    },
-    math::{DVec2, VectorSpace},
-    mesh::PrimitiveTopology::{LineList, LineStrip},
-    prelude::*,
-    reflect::tuple_struct::TupleStructFieldIter,
-    ui::Selected,
-    window::PrimaryWindow,
+    }, math::{DVec2, VectorSpace}, prelude::*, window::PrimaryWindow,
 };
 
-use crate::ships::{Fighter, Ship, ShipType};
+use crate::ships::{FighterHealth, ShipType};
 
 pub struct MapPlugin;
 
@@ -107,7 +92,7 @@ pub struct EntityPosInASector {
     pub pos: DVec2,
 }
 
-#[derive(Component, Debug)]
+#[derive(Component, Debug, Clone)]
 pub struct MapIcon {
     // pub size: f32,
     pub icon_type: IconType,
@@ -130,12 +115,50 @@ impl MapIcon {
         }
     }
 
+    pub fn get_health(&self) -> FighterHealth {
+        match &self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.health.clone(),
+            },
+        }
+    }
+
+    pub fn get_damage(&self) -> i32 {
+        match &self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.damage,
+            },
+        }
+    }
+
     pub fn update_pos(&mut self, amount: DVec2) {
         match &mut self.icon_type {
             IconType::Ship(ship) => match ship {
                 ShipType::Fighter(fighter) => fighter.pos += amount,
             },
         };
+    }
+
+    pub fn get_shields(&self) -> i32 {
+        match &self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.shields
+            }
+        }
+    }
+    
+    pub fn injure(&mut self, amount: i32, part: &'static str) {
+        match &mut self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => match part.to_ascii_lowercase().as_str() {
+                    "engines" => fighter.health.injure_engines(amount),
+                    "core" => fighter.health.injure_core(amount),
+                    "weapons" => fighter.health.injure_weapon_module(amount),
+                    "shields" => fighter.shields -= amount,
+                    other => println!("Didn't update, {other} part doesn't exist!"),
+                },
+            },
+        }
     }
 
     pub fn get_max_vel(&self) -> f32 {
@@ -334,6 +357,35 @@ pub fn check_if_clicked_inside_an_object(
     let condition_up = object_center.y + add_y > click.y;
 
     condition_down && condition_up && condition_left && condition_right
+}
+
+pub fn is_close_enough(pos1: DVec2, pos2: DVec2, offset: f64) -> bool {
+    let condition_x = pos1.x.abs() - offset <= pos2.x.abs();
+    let condition_y = pos1.y.abs() - offset <= pos2.y.abs();
+
+    condition_x && condition_y
+}
+
+pub fn which_part_to_injure(def_pos: DVec2, atk_pos: DVec2, def_t: &Transform, shields: i32) -> &'static str {
+    if shields > 0 {
+        return "shields";
+    }
+    let direction = (atk_pos - def_pos).normalize_or_zero();
+
+    let y_target = def_t.local_y().as_dvec3().truncate();
+    let x_target = def_t.local_x().as_dvec3().truncate();
+    
+    let y_align = direction.dot(y_target);
+    let x_align = direction.dot(x_target);
+    if y_align.abs() > x_align.abs() {
+        if y_align > 0. {
+            "core"
+        } else {
+            "engines"
+        }
+    } else {
+        "weapons"
+    }
 }
 
 // ##################################################################### updates the camera.
@@ -554,12 +606,12 @@ pub fn render_map_icons(
 
 // ############## Routes
 
-#[derive(Component, Clone, Debug, Default)]
+#[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub enum Order {
     #[default]
     None,
     Fly,
-    Attack,
+    Attack(Entity),
     Trade,
 }
 
@@ -626,6 +678,11 @@ pub fn draw_sector(mut gizmos: Gizmos, sector_q: Query<(&Sector, &Factions)>) {
     }
 }
 
+// ############################################ orders and selections - the shared part ###########################################:
+
+#[derive(Resource, Debug)]
+pub struct RemoveSelection;
+
 // ##################################################### # # # ORDERS # # # ######################################################
 
 //temp
@@ -650,6 +707,7 @@ pub fn toggle_pause(
 pub fn order(
     mut commands: Commands,
     selected_q: Query<(Entity, &MapIcon, &ChildOf), (With<MapIconSelected>, Without<Order>)>,
+    other_icons: Query<(Entity, &MapIcon), Without<MapIconSelected>>,
     cursor: Res<MapCursor>,
     mouse: Res<ButtonInput<MouseButton>>,
     mut vel_q: Query<&mut Velocity>,
@@ -661,10 +719,23 @@ pub fn order(
             if let Ok(mut vel) = vel_q.get_mut(child_of.0) {
                 vel.linvel = Vec2::ZERO;
             }
-            
+
+            for (entity2, icon2) in other_icons {
+                let icon2_pos = icon2.get_pos();
+                if check_if_clicked_inside_an_object(icon2_pos, cursor.pos, 20., 20.) {
+                    commands
+                        .entity(entity)
+                        .insert((MapRoute::new(pos, cursor.pos), Order::Attack(entity2)));
+                    println!("Attacking {icon:?}");
+                    commands.insert_resource(RemoveSelection);
+                    return;
+                }
+            }
+
             commands
                 .entity(entity)
                 .insert((MapRoute::new(pos, cursor.pos), Order::Fly));
+            commands.insert_resource(RemoveSelection);
         }
     }
 }
@@ -672,65 +743,132 @@ pub fn order(
 // Fulfilling orders
 pub fn fulfill_orders(
     mut commands: Commands,
-    orders: Query<(Entity, &Order, &MapRoute, &MapIcon, &ChildOf)>,
+    mut orders: Query<(
+        Entity,
+        Option<&mut Order>,
+        Option<&mut MapRoute>,
+        &mut MapIcon,
+        &ChildOf,
+    )>,
     mut map_icons: Query<&mut Velocity>,
     mut transform_q: Query<&mut Transform, Without<Rotated>>,
+    transform_r_q: Query<&Transform, With<Rotated>>,
     time: Res<Time>,
     _unpaused: If<Res<Unpaused>>,
 ) {
-    for (entity, _order, route, icon, child_of) in orders {
-        // This also checks if route isn't empty.
-        if let Some(endpoint) = route.path_endpoints.last() {
-            let parent = child_of.parent();
-            let pos = icon.get_pos();
-            let acceleration = icon.get_acceleration();
+    let mut attack_vec: Vec<[Entity; 2]> = vec![];
+    for (entity, order, route, icon, child_of) in &orders {
+        match order {
+            Some(Order::Attack(target)) => { attack_vec.push([entity, *target]); }
+            None => continue,
+            _ => {}
+        }
+        if icon.get_health().are_engines_wrecked() {
+            continue;
+        }
+        if let Some(route) = route {
+            if let Some(endpoint) = route.path_endpoints.last() {
+                let parent = child_of.parent();
+                let pos = icon.get_pos();
+                let acceleration = icon.get_acceleration();
 
-            if let Ok(mut transform) = transform_q.get_mut(parent) {
-                let direction = endpoint - pos;
+                if let Ok(mut transform) = transform_q.get_mut(parent) {
+                    let direction = endpoint - pos;
 
-                let target_angle_quat =
-                    Quat::from_rotation_z((direction.y.atan2(direction.x) - FRAC_PI_2) as f32);
+                    let target_angle_quat =
+                        Quat::from_rotation_z((direction.y.atan2(direction.x) - FRAC_PI_2) as f32);
 
-                let (_, _, target_angle) = target_angle_quat.to_euler(EulerRot::XYZ);
-                let (_, _, current_angle) = transform.rotation.to_euler(EulerRot::XYZ);
-                let (_, _, default_angle) =
-                    Quat::from_rotation_z(2. * time.delta_secs()).to_euler(EulerRot::XYZ);
+                    let (_, _, target_angle) = target_angle_quat.to_euler(EulerRot::XYZ);
+                    let (_, _, current_angle) = transform.rotation.to_euler(EulerRot::XYZ);
+                    let (_, _, default_angle) =
+                        Quat::from_rotation_z(2. * time.delta_secs()).to_euler(EulerRot::XYZ);
 
-                let angle_diff = (target_angle - current_angle + PI).rem_euclid(TAU) - PI;
+                    let angle_diff = (target_angle - current_angle + PI).rem_euclid(TAU) - PI;
 
-                if angle_diff > 0. {
-                    if !(angle_diff > -0.1 && angle_diff < 0.1) {
-                        transform.rotate_z(default_angle);
+                    if angle_diff > 0. {
+                        if !(angle_diff > -0.1 && angle_diff < 0.1) {
+                            transform.rotate_z(default_angle);
+                        } else {
+                            transform.rotation = target_angle_quat;
+                        }
+                    } else if angle_diff < 0. {
+                        if !(angle_diff > -0.1 && angle_diff < 0.1) {
+                            transform.rotate_z(-default_angle);
+                        } else {
+                            transform.rotation = target_angle_quat;
+                        }
                     } else {
-                        transform.rotation = target_angle_quat;
+                        commands.entity(parent).insert(Rotated);
                     }
-                } else if angle_diff < 0. {
-                    if !(angle_diff > -0.1 && angle_diff < 0.1) {
-                        transform.rotate_z(-default_angle);
-                    } else {
-                        transform.rotation = target_angle_quat;
-                    }
-                } else {
-                    commands.entity(parent).insert(Rotated);
+                    continue;
                 }
-                continue;
+                if let Ok(mut vel) = map_icons.get_mut(parent) {
+                    let max_vel = icon.get_max_vel();
+                    let distance_to_finish = (endpoint - pos).length();
+
+                    // and the fun part!
+                    let current_speed = vel.linvel.length();
+
+                    if distance_to_finish < 1. {
+                        vel.linvel = (endpoint - pos).normalize().as_vec2() / 33.;
+                        commands.entity(parent).remove::<Rotated>();
+                        commands.entity(entity).remove::<MapRoute>();
+                        if order == Some(&Order::Fly) {
+                            commands.entity(entity).remove::<Order>();
+                        }
+                    } else if distance_to_finish <= current_speed as f64 * 42. {
+                        vel.brake(acceleration, &time);
+                    } else {
+                        vel.add_from_endpoint(pos, *endpoint, max_vel, acceleration, &time);
+                    }
+                }
             }
-            if let Ok(mut vel) = map_icons.get_mut(parent) {
-                let max_vel = icon.get_max_vel();
-                let distance_to_finish = (endpoint - pos).length();
-
-                // and the fun part!
-                let current_speed = vel.linvel.length();
-                if distance_to_finish < 1. {
-                    vel.linvel = (endpoint - pos).normalize().as_vec2() / 33.;
-                    commands.entity(parent).remove::<Rotated>();
-                    commands.entity(entity).remove::<MapRoute>();
-                    commands.entity(entity).remove::<Order>();
-                } else if distance_to_finish <= current_speed as f64 * 42. {
-                    vel.brake(acceleration, &time);
-                } else {
-                    vel.add_from_endpoint(pos, *endpoint, max_vel, acceleration, &time);
+        }
+    }
+    for entity_array in attack_vec {
+        if let Ok(
+            [
+                (base_entity, base_order, base_route, base_icon, base_child_of),
+                (target_entity, mut target_order, target_route, mut target_icon, target_child_of),
+            ],
+        ) = orders.get_many_mut(entity_array)
+        {
+            let base_health = base_icon.get_health();
+            if base_health.are_weapons_wrecked() {
+                continue
+            }
+            
+            let base_pos = base_icon.get_pos();
+            let target_pos = target_icon.get_pos();
+            if base_route.is_none() && !is_close_enough(base_pos, target_pos, 100.) {
+                commands.entity(base_entity).insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
+            } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.){
+                commands.entity(base_entity).remove::<MapRoute>();
+            } else if is_close_enough(base_pos, target_pos, 200.) {
+                let damage_dealt = base_icon.get_damage();
+                let mut part = "core";
+                let target_shields = target_icon.get_shields();
+                if let Ok(transform) = transform_q.get(target_child_of.0) {
+                    part = which_part_to_injure(target_pos, base_pos, transform, target_shields);
+                } else if let Ok(transform) = transform_r_q.get(target_child_of.0) {
+                    part = which_part_to_injure(target_pos, base_pos, transform, target_shields); 
                 }
+                let target_health = target_icon.get_health();
+                if target_health.are_engines_wrecked() && part == "engines" {
+                    part = "core"
+                } else if target_health.are_weapons_wrecked() && part == "weapons" {
+                    part = "core"
+                }
+                target_icon.injure(damage_dealt, part);
+                if target_health.is_ship_wrecked() {
+                    commands.entity(target_entity).queue_silenced(despawn());
+                    commands.entity(target_child_of.0).queue_silenced(despawn());
+                    commands.entity(base_entity).remove::<Order>();
+                    commands.entity(base_entity).remove::<Rotated>();
+                    if let Ok(mut vel) = map_icons.get_mut(base_entity) {
+                        vel.linvel = Vec2::ZERO;
+                    }
+                } 
             }
         }
     }
@@ -758,24 +896,32 @@ pub fn update_cursor_pos(
     }
 }
 
+// ############################ selection, this needs to be improved
 pub fn select(
     mut commands: Commands,
     unselected_q: Query<(Entity, &MapIcon), Without<MapIconSelected>>,
     selected_q: Query<Entity, With<MapIconSelected>>,
     cursor: Res<MapCursor>,
     mouse: Res<ButtonInput<MouseButton>>,
+    remove_trigger: Option<Res<RemoveSelection>>,
 ) {
     if mouse.just_pressed(MouseButton::Left) {
-        for entity in selected_q {
-            commands.entity(entity).remove::<MapIconSelected>();
-        }
-        for (entity, icon) in unselected_q {
-            let icon_pos = icon.get_pos();
-            if check_if_clicked_inside_an_object(icon_pos, cursor.pos, 20., 20.) {
-                println!("SELECTED A SHIP.");
-                commands.entity(entity).insert(MapIconSelected);
-                return
+        if remove_trigger.is_none() {
+            if selected_q.is_empty() {
+                for (entity, icon) in unselected_q {
+                    let icon_pos = icon.get_pos();
+                    if check_if_clicked_inside_an_object(icon_pos, cursor.pos, 20., 20.) {
+                        println!("SELECTED A SHIP.");
+                        commands.entity(entity).insert(MapIconSelected);
+                        return;
+                    }
+                }
             }
+        } else {
+            for entity in selected_q {
+                commands.entity(entity).remove::<MapIconSelected>();
+            }
+            commands.remove_resource::<RemoveSelection>();
         }
     }
 }

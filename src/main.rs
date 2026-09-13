@@ -24,6 +24,10 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         owner,
         100.,
         30.,
+        2000,
+        123,
+        3000,
+        3,
     )));
     commands
         .spawn((
@@ -38,8 +42,8 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         .with_children(|parent| {
             parent.spawn((
                 MapIcon::new(icon_type.clone(), map::RelationType::Enemy),
-                MapRoute::new(pos.clone(), DVec2::new(2070., -2800.)),
-                Order::Fly,
+                // MapRoute::new(pos.clone(), DVec2::new(2070., -2800.)),
+                // Order::Fly,
             ));
         });
 
@@ -51,6 +55,10 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         owner,
         150.,
         33.,
+        2000,
+        123,
+        3400,
+        2,
     )));
     commands
         .spawn((
@@ -64,7 +72,7 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         ))
         .with_children(|parent| {
             parent.spawn((
-                MapIcon::new(icon_type.clone(), map::RelationType::Player),
+                MapIcon::new(icon_type.clone(), map::RelationType::Ally),
                 MapRoute::new(pos.clone(), DVec2::new(4370., 200.)),
                 Order::Fly,
             ));
@@ -78,6 +86,10 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         owner,
         150.,
         33.,
+        3000,
+        234,
+        3730,
+        13,
     )));
     commands
         .spawn((
@@ -124,7 +136,7 @@ fn main() {
         )
             .chain(),
     )
-    .add_systems(Update, (select, order, render_routes, draw_sector))
+    .add_systems(Update, ((order, select).chain(), render_routes, draw_sector))
     .add_plugins((
         DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
