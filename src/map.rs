@@ -10,7 +10,7 @@ use bevy::{
     }, math::{DVec2, VectorSpace}, prelude::*, window::PrimaryWindow,
 };
 
-use crate::ships::{FighterHealth, ShipType};
+use crate::{npcs::NonPlayableShip, ships::{FighterHealth, ShipType}};
 
 pub struct MapPlugin;
 
@@ -196,6 +196,14 @@ impl MapIcon {
             RelationType::Friendly => Color::srgba(0.77, 0.77, 1., 0.7),
             RelationType::Ally => Color::srgba(0.3, 0.7, 1., 0.7),
             RelationType::Player => Color::srgba(0.2, 1., 0.2, 0.7),
+        }
+    }
+    
+    pub fn get_faction(&self) -> Factions {
+        match &self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.owner
+            }
         }
     }
 }
@@ -899,8 +907,8 @@ pub fn update_cursor_pos(
 // ############################ selection, this needs to be improved
 pub fn select(
     mut commands: Commands,
-    unselected_q: Query<(Entity, &MapIcon), Without<MapIconSelected>>,
-    selected_q: Query<Entity, With<MapIconSelected>>,
+    unselected_q: Query<(Entity, &MapIcon), (Without<MapIconSelected>, Without<NonPlayableShip>)>,
+    selected_q: Query<Entity, (With<MapIconSelected>, Without<NonPlayableShip>)>,
     cursor: Res<MapCursor>,
     mouse: Res<ButtonInput<MouseButton>>,
     remove_trigger: Option<Res<RemoveSelection>>,

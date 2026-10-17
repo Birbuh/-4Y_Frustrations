@@ -1,6 +1,10 @@
 use bevy::{ecs::component::Component, math::DVec2, prelude::*};
 
-use crate::{map::Factions, products::ProductType};
+use crate::{
+    map::{Factions, MapIcon, Order, is_close_enough},
+    npcs::NonPlayableShip,
+    products::ProductType,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Capacity {
@@ -24,7 +28,7 @@ pub trait Ship {
         owner: Factions,
         max_vel: f32,
         acceleration: f32,
-        shields: i32, 
+        shields: i32,
         repair_speed: i32,
         max_health: i32,
         damage: i32,
@@ -36,16 +40,16 @@ pub struct FighterHealth {
     pub engines: i32,
     pub core: i32,
     pub weapons: i32,
-    pub repair_speed: i32
+    pub repair_speed: i32,
 }
 
 impl FighterHealth {
-    pub fn new(max_health: i32, repair_speed: i32) -> Self {
+    pub fn new(max_health: i32, shields: i32, repair_speed: i32) -> Self {
         Self {
             engines: max_health,
             core: max_health,
             weapons: max_health,
-            repair_speed
+            repair_speed,
         }
     }
     pub fn injure_engines(&mut self, amount: i32) {
@@ -55,14 +59,14 @@ impl FighterHealth {
             self.engines -= amount
         }
     }
-    
+
     pub fn injure_core(&mut self, amount: i32) {
         if self.core - amount < 0 {
             self.core = 0
         } else {
             self.core -= amount
         }
-    } 
+    }
 
     pub fn injure_weapon_module(&mut self, amount: i32) {
         if self.weapons - amount < 0 {
@@ -71,7 +75,7 @@ impl FighterHealth {
             self.weapons -= amount
         }
     }
-    
+
     pub fn are_engines_wrecked(&self) -> bool {
         self.engines <= 0
     }
@@ -106,7 +110,7 @@ impl Ship for Fighter {
         owner: Factions,
         max_vel: f32,
         acceleration: f32,
-        shields: i32, 
+        shields: i32,
         repair_speed: i32,
         max_health: i32,
         damage: i32,
@@ -119,7 +123,7 @@ impl Ship for Fighter {
             acceleration,
             cargo: Vec::new(),
             shields,
-            health: FighterHealth::new(max_health, repair_speed),
+            health: FighterHealth::new(max_health, shields, repair_speed),
             max_health,
             damage,
         }
@@ -129,4 +133,49 @@ impl Ship for Fighter {
 #[derive(Clone, Debug, PartialEq)]
 pub enum ShipType {
     Fighter(Fighter),
+}
+
+pub fn look_for_enemies(
+    commands: &mut Commands,
+    ship: (Entity, &MapIcon),
+    other_ships: &Query<(Entity, &MapIcon)>,
+    ship_pos: DVec2,
+) {
+    let (entity, icon) = ship;
+    let ship_owner = icon.get_faction();
+    match ship_owner {
+        Factions::TestAlly => {
+            for (entity2, other_icon) in other_ships {
+                let other_ship_pos = other_icon.get_pos();
+                if is_close_enough(ship_pos, other_ship_pos, 100.) {
+                    if entity == entity2 {
+                        continue;
+                    }
+                    match other_icon.get_faction() {
+                        Factions::TestEnemy => {
+                            commands.entity(entity).insert(Order::Attack(entity2));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Factions::TestEnemy => {
+            for (entity2, other_icon) in other_ships {
+                let other_ship_pos = other_icon.get_pos();
+                if is_close_enough(ship_pos, other_ship_pos, 100.) {
+                    if entity == entity2 {
+                        continue;
+                    }
+                    match other_icon.get_faction() {
+                        Factions::Player | Factions::TestAlly => {
+                            commands.entity(entity).insert(Order::Attack(entity2));
+                        }
+                        _ => {}
+                    }
+                }
+            }
+        }
+        Factions::Player => {} // there will be another function for this
+    }
 }

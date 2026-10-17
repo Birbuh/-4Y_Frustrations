@@ -2,6 +2,9 @@
 mod map;
 mod products;
 mod ships;
+mod npcs;
+
+use std::collections::HashMap;
 
 use bevy::{math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen};
 
@@ -11,8 +14,7 @@ use crate::{
         MapPlugin, MapRoute, MapState, MapVisible, Order, RelationType, Velocity, draw_sector,
         fulfill_orders, get_visible_map_objects, order, render_map_icons, render_routes, select,
         spawn_sector, toggle_pause, update_cursor_pos, update_pos_from_velocity, update_ship_pos,
-    },
-    ships::{Fighter, Ship, ShipType},
+    }, npcs::{ShipAiCooldownTimer, ships_ai}, ships::{Fighter, Ship, ShipType},
 };
 
 pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapState>>*/) {
@@ -55,9 +57,9 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         owner,
         150.,
         33.,
-        2000,
+        200,
         123,
-        3400,
+        400,
         2,
     )));
     commands
@@ -73,7 +75,7 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         .with_children(|parent| {
             parent.spawn((
                 MapIcon::new(icon_type.clone(), map::RelationType::Ally),
-                MapRoute::new(pos.clone(), DVec2::new(4370., 200.)),
+                MapRoute::new(pos.clone(), DVec2::new(100., 100.)),
                 Order::Fly,
             ));
         });
@@ -115,6 +117,7 @@ fn main() {
         viewport_size: Vec2::new(1920., 1080.),
     })
     .insert_resource(MapCursor { pos: DVec2::ZERO })
+    .insert_resource(ShipAiCooldownTimer(HashMap::new()))
     .add_systems(
         Startup,
         (
@@ -136,7 +139,7 @@ fn main() {
         )
             .chain(),
     )
-    .add_systems(Update, ((order, select).chain(), render_routes, draw_sector))
+    .add_systems(Update, ((order, select).chain(), render_routes, draw_sector, ships_ai))
     .add_plugins((
         DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
