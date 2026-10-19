@@ -22,18 +22,29 @@ pub fn ships_ai(
             continue;
         }
         if let Some(timer) = (*cooldown_timer).0.get_mut(&entity) {
-            timer.tick(time.delta());
             if timer.is_finished() {
                 let pos = icon.get_pos();
 
                 look_for_enemies(&mut commands, (entity, icon), &npses, pos);
-                
-                timer.reset();
             }
         } else {
             (*cooldown_timer)
                 .0
-                .insert(entity, Timer::from_seconds(3., TimerMode::Once));
+                .insert(entity, Timer::from_seconds(1., TimerMode::Once));
+        }
+    }
+}
+
+pub fn tick_ai_cooldown_timer(mut timers: ResMut<ShipAiCooldownTimer>, time: Res<Time>) {
+    for timer in timers.0.values_mut() {
+        timer.tick(time.delta());
+    }
+}
+
+pub fn reset_finished_ai_cooldown_timer(mut timers: ResMut<ShipAiCooldownTimer>) {
+    for timer in timers.0.values_mut() {
+        if timer.is_finished() {
+            timer.reset();
         }
     }
 }

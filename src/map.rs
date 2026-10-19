@@ -1,16 +1,25 @@
 use std::{
-    f32::consts::{PI, TAU}, f64::consts::FRAC_PI_2, mem::transmute, os::unix::process::parent_id,
+    f32::consts::{PI, TAU},
+    f64::consts::FRAC_PI_2,
 };
 
 use bevy::{
-    camera::Camera2d, dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings}, ecs::{resource::Resource, system::entity_command::despawn}, input::{
+    camera::Camera2d,
+    dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
+    ecs::{resource::Resource, system::entity_command::despawn},
+    input::{
         ButtonInput,
         keyboard::KeyCode,
         mouse::{AccumulatedMouseMotion, MouseWheel},
-    }, math::{DVec2, VectorSpace}, prelude::*, window::PrimaryWindow,
+    },
+    math::DVec2,
+    prelude::*,
+    window::PrimaryWindow,
 };
 
-use crate::{npcs::NonPlayableShip, ships::{FighterHealth, ShipType}};
+use crate::{
+    npcs::{NonPlayableShip, ShipAiCooldownTimer}, ships::{FighterHealth, ShipType},
+};
 
 pub struct MapPlugin;
 
@@ -142,11 +151,11 @@ impl MapIcon {
     pub fn get_shields(&self) -> i32 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
-                ShipType::Fighter(fighter) => fighter.shields
-            }
+                ShipType::Fighter(fighter) => fighter.shields,
+            },
         }
     }
-    
+
     pub fn injure(&mut self, amount: i32, part: &'static str) {
         match &mut self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -161,7 +170,7 @@ impl MapIcon {
         }
     }
 
-    pub fn get_max_vel(&self) -> f32 {
+    pub fn get_max_vel(&self) -> f64 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
                 ShipType::Fighter(fighter) => fighter.max_vel,
@@ -169,7 +178,7 @@ impl MapIcon {
         }
     }
 
-    pub fn get_acceleration(&self) -> f32 {
+    pub fn get_acceleration(&self) -> f64 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
                 ShipType::Fighter(fighter) => fighter.acceleration,
@@ -198,12 +207,12 @@ impl MapIcon {
             RelationType::Player => Color::srgba(0.2, 1., 0.2, 0.7),
         }
     }
-    
+
     pub fn get_faction(&self) -> Factions {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
-                ShipType::Fighter(fighter) => fighter.owner
-            }
+                ShipType::Fighter(fighter) => fighter.owner,
+            },
         }
     }
 }
@@ -282,48 +291,59 @@ impl VisibleMapObject {
 
 #[derive(Component, Debug)]
 pub struct Velocity {
-    linvel: Vec2,
+    speed: f64,
 }
 
 pub fn update_pos_from_velocity(
-    mut vel_transform_query: Query<(&mut Velocity, &mut Transform)>,
-    children_q: Query<(&mut MapIcon, &ChildOf)>,
+    mut vel_transform_query: Query<(&mut Velocity, &mut Transform, &Children)>,
+    mut children_q: Query<&mut MapIcon>,
 ) {
-    for (vel, mut transform) in &mut vel_transform_query {
-        transform.translation += vel.linvel.extend(0.);
-    }
-    for (mut map_icon, child_of) in children_q {
-        if let Ok((vel, _)) = &vel_transform_query.get(child_of.0) {
-            map_icon.update_pos(vel.linvel.as_dvec2());
+    for (vel, mut transform, children) in &mut vel_transform_query {
+        let dir = transform.rotation * Vec3::Y;
+        let linvel: DVec2;
+        { 
+            let vel_x = dir.x as f64 * vel.speed;
+            let vel_y = dir.y as f64 * vel.speed;
+            linvel = DVec2::new(vel_x, vel_y)
+        }
+        println!("{}", linvel);
+        println!("{}", vel.speed);
+        println!("{}", transform.rotation);
+
+        for child in children {
+            if let Ok(mut icon) = children_q.get_mut(*child) {
+                icon.update_pos(linvel);
+
+                transform.translation += linvel.extend(0.).as_vec3();
+            }
         }
     }
 }
 
 impl Velocity {
-    pub const ZERO: Self = Self { linvel: Vec2::ZERO };
-
+    pub const ZERO: Self = Self { speed: 0. };
+    
     pub fn add_from_endpoint(
         &mut self,
-        start_point: DVec2,
-        endpoint: DVec2,
-        max_speed: f32,
-        acceleration: f32,
+        max_speed: f64,
+        acceleration: f64,
         time: &Res<Time>,
     ) {
-        let direction = (endpoint - start_point).normalize().as_vec2();
-        self.linvel += direction * acceleration * time.delta_secs() as f32;
+        if self.speed == max_speed {
+            return
+        }
+        self.speed += acceleration * time.delta_secs_f64();
 
-        if self.linvel.length() > max_speed {
-            self.linvel = self.linvel.normalize() * max_speed;
+        if self.speed > max_speed {
+            self.speed = max_speed;
         }
     }
 
-    pub fn brake(&mut self, acceleration: f32, time: &Res<Time>) {
-        let speed = self.linvel.length();
-        let new_speed = (speed - 4.2 * acceleration * time.delta_secs()).max(0.);
+    pub fn brake(&mut self, acceleration: f64, time: &Res<Time>) {
+        let new_speed = (self.speed - 4.2 * acceleration * time.delta_secs_f64()).max(0.);
 
-        if speed > 0. {
-            self.linvel = self.linvel.normalize() * new_speed;
+        if self.speed > 0. {
+            self.speed = new_speed;
         }
     }
 }
@@ -374,7 +394,12 @@ pub fn is_close_enough(pos1: DVec2, pos2: DVec2, offset: f64) -> bool {
     condition_x && condition_y
 }
 
-pub fn which_part_to_injure(def_pos: DVec2, atk_pos: DVec2, def_t: &Transform, shields: i32) -> &'static str {
+pub fn which_part_to_injure(
+    def_pos: DVec2,
+    atk_pos: DVec2,
+    def_t: &Transform,
+    shields: i32,
+) -> &'static str {
     if shields > 0 {
         return "shields";
     }
@@ -382,15 +407,11 @@ pub fn which_part_to_injure(def_pos: DVec2, atk_pos: DVec2, def_t: &Transform, s
 
     let y_target = def_t.local_y().as_dvec3().truncate();
     let x_target = def_t.local_x().as_dvec3().truncate();
-    
+
     let y_align = direction.dot(y_target);
     let x_align = direction.dot(x_target);
     if y_align.abs() > x_align.abs() {
-        if y_align > 0. {
-            "core"
-        } else {
-            "engines"
-        }
+        if y_align > 0. { "core" } else { "engines" }
     } else {
         "weapons"
     }
@@ -725,7 +746,7 @@ pub fn order(
             let pos = icon.get_pos();
 
             if let Ok(mut vel) = vel_q.get_mut(child_of.0) {
-                vel.linvel = Vec2::ZERO;
+                vel.speed = 0.;
             }
 
             for (entity2, icon2) in other_icons {
@@ -758,16 +779,18 @@ pub fn fulfill_orders(
         &mut MapIcon,
         &ChildOf,
     )>,
-    mut map_icons: Query<&mut Velocity>,
-    mut transform_q: Query<&mut Transform, Without<Rotated>>,
-    transform_r_q: Query<&Transform, With<Rotated>>,
+    mut map_icons: Query<(&mut Velocity, Option<&Rotated>)>,
+    mut transform_q: Query<&mut Transform>,
     time: Res<Time>,
+    ai_cooldown: ResMut<ShipAiCooldownTimer>,
     _unpaused: If<Res<Unpaused>>,
 ) {
     let mut attack_vec: Vec<[Entity; 2]> = vec![];
     for (entity, order, route, icon, child_of) in &orders {
         match order {
-            Some(Order::Attack(target)) => { attack_vec.push([entity, *target]); }
+            Some(Order::Attack(target)) => {
+                attack_vec.push([entity, *target]);
+            }
             None => continue,
             _ => {}
         }
@@ -808,26 +831,39 @@ pub fn fulfill_orders(
                     } else {
                         commands.entity(parent).insert(Rotated);
                     }
-                    continue;
                 }
-                if let Ok(mut vel) = map_icons.get_mut(parent) {
+                if let Ok((mut vel, rotated)) = map_icons.get_mut(parent) {
                     let max_vel = icon.get_max_vel();
                     let distance_to_finish = (endpoint - pos).length();
 
                     // and the fun part!
-                    let current_speed = vel.linvel.length();
+                    let current_speed = vel.speed;
 
                     if distance_to_finish < 1. {
-                        vel.linvel = (endpoint - pos).normalize().as_vec2() / 33.;
+                        vel.speed = 0.;
                         commands.entity(parent).remove::<Rotated>();
                         commands.entity(entity).remove::<MapRoute>();
                         if order == Some(&Order::Fly) {
                             commands.entity(entity).remove::<Order>();
                         }
                     } else if distance_to_finish <= current_speed as f64 * 42. {
-                        vel.brake(acceleration, &time);
+                        if !(matches!(order, Some(&Order::Attack(_)))) {
+                            vel.brake(acceleration, &time);
+                        }
                     } else {
-                        vel.add_from_endpoint(pos, *endpoint, max_vel, acceleration, &time);
+                        if rotated.is_none() {
+                            vel.add_from_endpoint(
+                                max_vel / 10.,
+                                acceleration / 5.,
+                                &time,
+                            );
+                        } else {
+                            vel.add_from_endpoint(
+                                max_vel,
+                                acceleration,
+                                &time,
+                            );
+                        }
                     }
                 }
             }
@@ -843,23 +879,32 @@ pub fn fulfill_orders(
         {
             let base_health = base_icon.get_health();
             if base_health.are_weapons_wrecked() {
-                continue
+                continue;
             }
-            
+
             let base_pos = base_icon.get_pos();
             let target_pos = target_icon.get_pos();
-            if base_route.is_none() && !is_close_enough(base_pos, target_pos, 100.) {
-                commands.entity(base_entity).insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
-            } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.){
-                commands.entity(base_entity).remove::<MapRoute>();
+            if let Some(timer) = ai_cooldown.0.get(&base_entity) {
+                if timer.is_finished() {
+                    commands.entity(base_entity).remove::<MapRoute>().insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
+                }
+            }
+            if base_route.is_none() && target_route.is_some() {
+                commands
+                    .entity(base_entity)
+                    .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
+            } else if base_route.is_none() && !is_close_enough(base_pos, target_pos, 100.) {
+                commands
+                    .entity(base_entity)
+                    .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
+            // } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.) {
+            //     commands.entity(base_entity).remove::<MapRoute>();
             } else if is_close_enough(base_pos, target_pos, 200.) {
                 let damage_dealt = base_icon.get_damage();
                 let mut part = "core";
                 let target_shields = target_icon.get_shields();
                 if let Ok(transform) = transform_q.get(target_child_of.0) {
                     part = which_part_to_injure(target_pos, base_pos, transform, target_shields);
-                } else if let Ok(transform) = transform_r_q.get(target_child_of.0) {
-                    part = which_part_to_injure(target_pos, base_pos, transform, target_shields); 
                 }
                 let target_health = target_icon.get_health();
                 if target_health.are_engines_wrecked() && part == "engines" {
@@ -873,10 +918,10 @@ pub fn fulfill_orders(
                     commands.entity(target_child_of.0).queue_silenced(despawn());
                     commands.entity(base_entity).remove::<Order>();
                     commands.entity(base_entity).remove::<Rotated>();
-                    if let Ok(mut vel) = map_icons.get_mut(base_entity) {
-                        vel.linvel = Vec2::ZERO;
+                    if let Ok((mut vel, _)) = map_icons.get_mut(base_entity) {
+                        vel.speed = 0.;
                     }
-                } 
+                }
             }
         }
     }

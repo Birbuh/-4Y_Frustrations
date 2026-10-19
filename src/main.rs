@@ -14,7 +14,7 @@ use crate::{
         MapPlugin, MapRoute, MapState, MapVisible, Order, RelationType, Velocity, draw_sector,
         fulfill_orders, get_visible_map_objects, order, render_map_icons, render_routes, select,
         spawn_sector, toggle_pause, update_cursor_pos, update_pos_from_velocity, update_ship_pos,
-    }, npcs::{ShipAiCooldownTimer, ships_ai}, ships::{Fighter, Ship, ShipType},
+    }, npcs::{ShipAiCooldownTimer, reset_finished_ai_cooldown_timer, ships_ai, tick_ai_cooldown_timer}, ships::{Fighter, Ship, ShipType},
 };
 
 pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapState>>*/) {
@@ -24,8 +24,8 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         1,
         pos.clone(),
         owner,
-        100.,
-        30.,
+        10.,
+        3.,
         2000,
         123,
         3000,
@@ -55,11 +55,11 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         1,
         pos.clone(),
         owner,
-        150.,
-        33.,
-        200,
+        15.,
+        3.3,
+        2000,
         123,
-        400,
+        4000,
         2,
     )));
     commands
@@ -86,8 +86,8 @@ pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapS
         1,
         pos.clone(),
         owner,
-        150.,
-        33.,
+        15.,
+        3.3,
         3000,
         234,
         3730,
@@ -131,15 +131,18 @@ fn main() {
     .add_systems(
         FixedUpdate,
         (
+            tick_ai_cooldown_timer,
             update_cursor_pos,
             toggle_pause,
             update_pos_from_velocity,
             update_ship_pos,
             fulfill_orders,
+            ships_ai,
+            reset_finished_ai_cooldown_timer
         )
             .chain(),
     )
-    .add_systems(Update, ((order, select).chain(), render_routes, draw_sector, ships_ai))
+    .add_systems(Update, ((order, select).chain(), render_routes, draw_sector))
     .add_plugins((
         DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {
