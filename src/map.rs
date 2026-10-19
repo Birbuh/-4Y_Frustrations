@@ -5,7 +5,7 @@ use std::{
 
 use bevy::{
     camera::Camera2d,
-    dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridPlugin, InfiniteGridSettings},
+    dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridSettings},
     ecs::{resource::Resource, system::entity_command::despawn},
     input::{
         ButtonInput,
@@ -59,9 +59,6 @@ pub enum IconType {
 #[derive(Debug, Component, Clone)]
 pub enum RelationType {
     Enemy,
-    Unfriendly,
-    Neutral,
-    Friendly,
     Ally,
     Player,
 }
@@ -190,9 +187,6 @@ impl MapIcon {
     pub fn get_color(&self) -> Color {
         match self.relations_type {
             RelationType::Enemy => Color::srgb(1., 0.33, 0.33),
-            RelationType::Unfriendly => Color::srgb(1., 0.55, 0.55),
-            RelationType::Neutral => Color::srgb(1., 1., 0.),
-            RelationType::Friendly => Color::srgb(0.77, 0.77, 1.),
             RelationType::Ally => Color::srgb(0.3, 0.7, 1.),
             RelationType::Player => Color::srgb(0.2, 1., 0.2),
         }
@@ -201,9 +195,6 @@ impl MapIcon {
     pub fn get_line_color(&self) -> Color {
         match self.relations_type {
             RelationType::Enemy => Color::srgba(1., 0.33, 0.33, 0.67),
-            RelationType::Unfriendly => Color::srgba(1., 0.55, 0.55, 0.67),
-            RelationType::Neutral => Color::srgba(1., 1., 0., 0.7),
-            RelationType::Friendly => Color::srgba(0.77, 0.77, 1., 0.7),
             RelationType::Ally => Color::srgba(0.3, 0.7, 1., 0.7),
             RelationType::Player => Color::srgba(0.2, 1., 0.2, 0.7),
         }
@@ -219,12 +210,6 @@ impl MapIcon {
 }
 
 #[derive(Component)]
-pub struct MapLabel {
-    pub text: String,
-    pub priority: u8,
-}
-
-#[derive(Component)]
 pub struct MapSelectable {
     pub selection_radius: f64,
 }
@@ -232,22 +217,9 @@ pub struct MapSelectable {
 #[derive(Component)]
 pub struct MapVisible;
 
-#[derive(Resource)]
-pub struct MapView {
-    pub viewed_sector: Entity,
-}
-
-#[derive(Resource)]
-pub struct MapSelection {
-    pub hovered: Option<Entity>,
-    pub selected: Vec<Entity>,
-}
-
 #[derive(Debug)]
 pub struct VisibleMapObject {
     pub entity: Entity,
-    pub map_pos: DVec2,
-    pub screen_pos: Vec2,
     pub obj_type: IconType,
     pub faction: Factions,
     pub sector_id: u16,
@@ -307,9 +279,6 @@ pub fn update_pos_from_velocity(
             let vel_y = dir.y as f64 * vel.speed;
             linvel = DVec2::new(vel_x, vel_y)
         }
-        println!("{}", linvel);
-        println!("{}", vel.speed);
-        println!("{}", transform.rotation);
 
         for child in children {
             if let Ok(mut icon) = children_q.get_mut(*child) {
@@ -572,11 +541,8 @@ pub fn get_visible_map_objects(
         MapState::Sector(sector_id) => {
             for (entity, pos, obj_type, faction, relationship) in entities {
                 if pos.sector == sector_id {
-                    let screen_pos = map_to_screen(pos.pos, &camera);
                     visible_objects.push(VisibleMapObject {
                         entity,
-                        map_pos: pos.pos,
-                        screen_pos,
                         obj_type: obj_type.clone(),
                         faction: *faction,
                         sector_id,

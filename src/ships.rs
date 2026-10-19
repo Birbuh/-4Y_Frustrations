@@ -1,7 +1,11 @@
 use bevy::{ecs::component::Component, math::DVec2, prelude::*};
 
 use crate::{
-    map::{EntityPosInASector, Factions, IconType, MapIcon, MapVisible, Order, RelationType, Velocity, is_close_enough}, npcs::NonPlayableShip, products::ProductType,
+    map::{
+        EntityPosInASector, Factions, IconType, MapIcon, MapVisible, Order, RelationType, Velocity,
+        is_close_enough,
+    },
+    npcs::NonPlayableShip,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -117,7 +121,10 @@ pub fn spawn_ship(
             Sprite::from_image(image),
             icon.clone(),
             owner,
-            EntityPosInASector { sector: sector_id, pos },
+            EntityPosInASector {
+                sector: sector_id,
+                pos,
+            },
             MapVisible,
             Transform::from_translation(pos.clone().as_vec2().extend(0.)),
             Velocity::ZERO,
@@ -139,7 +146,7 @@ pub struct Fighter {
     pub owner: Factions,
     pub max_vel: f64,
     pub acceleration: f64,
-    pub cargo: Vec<(ProductType, Capacity)>,
+    // pub cargo: Vec<(ProductType, Capacity)>,
     pub shields: i32,
     pub health: FighterHealth,
     pub max_health: i32,
@@ -164,7 +171,7 @@ impl Ship for Fighter {
             owner,
             max_vel,
             acceleration,
-            cargo: Vec::new(),
+            // cargo: Vec::new(),
             shields,
             health: FighterHealth::new(max_health, shields, repair_speed),
             max_health,
