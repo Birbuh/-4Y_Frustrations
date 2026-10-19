@@ -1,8 +1,8 @@
 // extern crate bevy;
 mod map;
+mod npcs;
 mod products;
 mod ships;
-mod npcs;
 
 use std::collections::HashMap;
 
@@ -11,13 +11,18 @@ use bevy::{math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen};
 use crate::{
     map::{
         EntityPosInASector, Factions, IconType, MapCamera, MapCursor, MapIcon, MapIconSelected,
-        MapPlugin, MapRoute, MapState, MapVisible, Order, RelationType, Velocity, draw_sector,
-        fulfill_orders, get_visible_map_objects, order, render_map_icons, render_routes, select,
-        spawn_sector, toggle_pause, update_cursor_pos, update_pos_from_velocity, update_ship_pos,
-    }, npcs::{ShipAiCooldownTimer, reset_finished_ai_cooldown_timer, ships_ai, tick_ai_cooldown_timer}, ships::{Fighter, Ship, ShipType},
+        MapPlugin, MapRoute, MapState, MapVisible, Order, RelationType, Unpaused, Velocity,
+        add_ship_from_input, draw_sector, fulfill_orders, get_visible_map_objects, order,
+        render_map_icons, render_routes, select, spawn_sector, toggle_pause, update_cursor_pos,
+        update_pos_from_velocity, update_ship_pos,
+    },
+    npcs::{
+        ShipAiCooldownTimer, reset_finished_ai_cooldown_timer, ships_ai, tick_ai_cooldown_timer,
+    },
+    ships::{Fighter, Ship, ShipType, spawn_ship},
 };
 
-pub fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapState>>*/) {
+fn test_map(mut commands: Commands /*, mut next_state: ResMut<NextState<MapState>>*/) {
     let owner = Factions::TestEnemy;
     let pos = DVec2::new(13., 17.);
     let icon_type = IconType::Ship(ShipType::Fighter(Fighter::new(
@@ -132,17 +137,26 @@ fn main() {
         FixedUpdate,
         (
             tick_ai_cooldown_timer,
-            update_cursor_pos,
-            toggle_pause,
             update_pos_from_velocity,
             update_ship_pos,
             fulfill_orders,
             ships_ai,
-            reset_finished_ai_cooldown_timer
+            reset_finished_ai_cooldown_timer,
         )
-            .chain(),
+            .chain()
+            .run_if(resource_exists::<Unpaused>),
     )
-    .add_systems(Update, ((order, select).chain(), render_routes, draw_sector))
+    .add_systems(
+        Update,
+        (
+            update_cursor_pos,
+            add_ship_from_input,
+            toggle_pause,
+            (order, select).chain(),
+            render_routes,
+            draw_sector,
+        ),
+    )
     .add_plugins((
         DefaultPlugins.set(WindowPlugin {
             primary_window: Some(Window {

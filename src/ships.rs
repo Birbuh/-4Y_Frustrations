@@ -1,9 +1,7 @@
 use bevy::{ecs::component::Component, math::DVec2, prelude::*};
 
 use crate::{
-    map::{Factions, MapIcon, Order, is_close_enough},
-    npcs::NonPlayableShip,
-    products::ProductType,
+    map::{EntityPosInASector, Factions, IconType, MapIcon, MapVisible, Order, RelationType, Velocity, is_close_enough}, npcs::NonPlayableShip, products::ProductType,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -87,6 +85,51 @@ impl FighterHealth {
     pub fn is_ship_wrecked(&self) -> bool {
         self.core <= 0
     }
+}
+
+pub fn spawn_ship(
+    commands: &mut Commands,
+    sector_id: u16,
+    pos: DVec2,
+    owner: Factions,
+    max_vel: f64,
+    acceleration: f64,
+    shields: i32,
+    repair_speed: i32,
+    max_health: i32,
+    damage: i32,
+    relation_type: RelationType,
+    image: Handle<Image>,
+) {
+    let icon = IconType::Ship(ShipType::Fighter(Fighter::new(
+        sector_id,
+        pos,
+        owner,
+        max_vel,
+        acceleration,
+        shields,
+        repair_speed,
+        max_health,
+        damage,
+    )));
+    commands
+        .spawn((
+            Sprite::from_image(image),
+            icon.clone(),
+            owner,
+            EntityPosInASector { sector: sector_id, pos },
+            MapVisible,
+            Transform::from_translation(pos.clone().as_vec2().extend(0.)),
+            Velocity::ZERO,
+            relation_type.clone(),
+        ))
+        .with_children(|parent| {
+            parent.spawn((
+                MapIcon::new(icon.clone(), relation_type.clone()),
+                // MapRoute::new(pos.clone(), DVec2::new(2070., -2800.)),
+                // Order::Fly,
+            ));
+        });
 }
 
 #[derive(Component, Clone, Debug, PartialEq)]

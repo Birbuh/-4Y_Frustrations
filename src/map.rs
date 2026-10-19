@@ -18,7 +18,8 @@ use bevy::{
 };
 
 use crate::{
-    npcs::{NonPlayableShip, ShipAiCooldownTimer}, ships::{FighterHealth, ShipType},
+    npcs::{NonPlayableShip, ShipAiCooldownTimer},
+    ships::{FighterHealth, ShipType, spawn_ship},
 };
 
 pub struct MapPlugin;
@@ -301,7 +302,7 @@ pub fn update_pos_from_velocity(
     for (vel, mut transform, children) in &mut vel_transform_query {
         let dir = transform.rotation * Vec3::Y;
         let linvel: DVec2;
-        { 
+        {
             let vel_x = dir.x as f64 * vel.speed;
             let vel_y = dir.y as f64 * vel.speed;
             linvel = DVec2::new(vel_x, vel_y)
@@ -322,15 +323,10 @@ pub fn update_pos_from_velocity(
 
 impl Velocity {
     pub const ZERO: Self = Self { speed: 0. };
-    
-    pub fn add_from_endpoint(
-        &mut self,
-        max_speed: f64,
-        acceleration: f64,
-        time: &Res<Time>,
-    ) {
+
+    pub fn add_from_endpoint(&mut self, max_speed: f64, acceleration: f64, time: &Res<Time>) {
         if self.speed == max_speed {
-            return
+            return;
         }
         self.speed += acceleration * time.delta_secs_f64();
 
@@ -717,16 +713,21 @@ pub struct RemoveSelection;
 //temp
 #[derive(Resource)]
 pub struct Unpaused;
+#[derive(Resource)]
+pub struct Paused;
+
 pub fn toggle_pause(
     mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
     is_unpaused: Option<Res<Unpaused>>,
 ) {
     if keyboard.just_pressed(KeyCode::Space) {
-        if let Some(_) = is_unpaused {
+        if is_unpaused.is_some() {
             commands.remove_resource::<Unpaused>();
+            commands.insert_resource(Paused);
         } else {
             commands.insert_resource(Unpaused);
+            commands.remove_resource::<Paused>();
         }
     }
 }
@@ -852,17 +853,9 @@ pub fn fulfill_orders(
                         }
                     } else {
                         if rotated.is_none() {
-                            vel.add_from_endpoint(
-                                max_vel / 10.,
-                                acceleration / 5.,
-                                &time,
-                            );
+                            vel.add_from_endpoint(max_vel / 10., acceleration / 5., &time);
                         } else {
-                            vel.add_from_endpoint(
-                                max_vel,
-                                acceleration,
-                                &time,
-                            );
+                            vel.add_from_endpoint(max_vel, acceleration, &time);
                         }
                     }
                 }
@@ -886,7 +879,10 @@ pub fn fulfill_orders(
             let target_pos = target_icon.get_pos();
             if let Some(timer) = ai_cooldown.0.get(&base_entity) {
                 if timer.is_finished() {
-                    commands.entity(base_entity).remove::<MapRoute>().insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
+                    commands
+                        .entity(base_entity)
+                        .remove::<MapRoute>()
+                        .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
                 }
             }
             if base_route.is_none() && target_route.is_some() {
@@ -976,5 +972,48 @@ pub fn select(
             }
             commands.remove_resource::<RemoveSelection>();
         }
+    }
+}
+
+// ##################################################### # # # ADDING SHIPS WHILE IN PAUSE  # # # ######################################################
+pub fn add_ship_from_input(
+    mut commands: Commands,
+    cursor: Res<MapCursor>,
+    mouse: Res<ButtonInput<MouseButton>>,
+    asset_server: Res<AssetServer>,
+    _paused: If<Res<Paused>>,
+) {
+    if mouse.just_pressed(MouseButton::Left) {
+        let image: Handle<Image> = asset_server.load("icons/fighter_ally.png");
+        spawn_ship(
+            &mut commands,
+            1,
+            cursor.pos,
+            Factions::TestAlly,
+            10.,
+            3.3,
+            3000,
+            123,
+            3333,
+            20,
+            RelationType::Ally,
+            image,
+        );
+    } else if mouse.just_pressed(MouseButton::Middle) {
+        let image: Handle<Image> = asset_server.load("icons/fighter_enemy.png");
+        spawn_ship(
+            &mut commands,
+            1,
+            cursor.pos,
+            Factions::TestEnemy,
+            10.,
+            3.3,
+            3000,
+            123,
+            3333,
+            20,
+            RelationType::Enemy,
+            image,
+        );
     }
 }
