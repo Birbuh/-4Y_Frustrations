@@ -18,8 +18,7 @@ use bevy::{
 };
 
 use crate::{
-    npcs::{NonPlayableShip, ShipAiCooldownTimer},
-    ships::{FighterHealth, ShipType, spawn_ship},
+    npcs::{NonPlayableShip, ShipAiCooldownTimer}, ships::{FighterHealth, ShipType, spawn_ship, update_fighter_texture},
 };
 
 pub struct MapPlugin;
@@ -405,7 +404,7 @@ pub fn update_map_camera(
     mouse_motion: Res<AccumulatedMouseMotion>,
 ) {
     for event in mouse_wheel.read() {
-        if map_camera.zoom > 0.4 && map_camera.zoom < 10. {
+        if map_camera.zoom > 0.4 && map_camera.zoom < 20. {
             map_camera.zoom += event.y as f64 / 5.; // update the map zoom by the amount was scrolled.
         } else if map_camera.zoom <= 0.4 {
             if event.y >= 0. {
@@ -739,6 +738,7 @@ pub fn order(
 // Fulfilling orders
 pub fn fulfill_orders(
     mut commands: Commands,
+    asset_server: Res<AssetServer>,
     mut orders: Query<(
         Entity,
         Option<&mut Order>,
@@ -754,6 +754,12 @@ pub fn fulfill_orders(
 ) {
     let mut attack_vec: Vec<[Entity; 2]> = vec![];
     for (entity, order, route, icon, child_of) in &orders {
+        if route.is_none() && order.is_none() {
+            let acceleration = icon.get_acceleration();
+            if let Ok((mut vel, _)) = map_icons.get_mut(child_of.parent()) {
+                vel.brake(acceleration, &time);
+            }
+        }
         match order {
             Some(Order::Attack(target)) => {
                 attack_vec.push([entity, *target]);
@@ -828,7 +834,7 @@ pub fn fulfill_orders(
             }
         }
     }
-    for entity_array in attack_vec {
+    for entity_array in attack_vec.clone() {
         if let Ok(
             [
                 (base_entity, base_order, base_route, base_icon, base_child_of),
@@ -837,6 +843,10 @@ pub fn fulfill_orders(
         ) = orders.get_many_mut(entity_array)
         {
             let base_health = base_icon.get_health();
+            {
+                let wreckage = base_health.estimate_wreckage();
+                update_fighter_texture(&mut commands, &asset_server, (base_child_of.parent(), base_icon.get_faction(), wreckage));
+            }
             if base_health.are_weapons_wrecked() {
                 continue;
             }
@@ -861,7 +871,7 @@ pub fn fulfill_orders(
                     .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
             // } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.) {
             //     commands.entity(base_entity).remove::<MapRoute>();
-            } else if is_close_enough(base_pos, target_pos, 200.) {
+            } else if is_close_enough(base_pos, target_pos, 100.) {
                 let damage_dealt = base_icon.get_damage();
                 let mut part = "core";
                 let target_shields = target_icon.get_shields();
@@ -878,13 +888,22 @@ pub fn fulfill_orders(
                 if target_health.is_ship_wrecked() {
                     commands.entity(target_entity).queue_silenced(despawn());
                     commands.entity(target_child_of.0).queue_silenced(despawn());
-                    commands.entity(base_entity).remove::<Order>();
-                    commands.entity(base_entity).remove::<Rotated>();
+                    commands
+                        .entity(base_entity)
+                        .remove::<Order>()
+                        .remove::<MapRoute>()
+                        .remove::<Rotated>();
                     if let Ok((mut vel, _)) = map_icons.get_mut(base_entity) {
                         vel.speed = 0.;
                     }
                 }
             }
+        } else if let Ok((entity, _, _, _, _)) = orders.get_mut(entity_array[0]) {
+            commands
+                .entity(entity)
+                .remove::<Order>()
+                .remove::<MapRoute>()
+                .remove::<Rotated>();
         }
     }
 }
@@ -912,34 +931,34 @@ pub fn update_cursor_pos(
 }
 
 // ############################ selection, this needs to be improved
-pub fn select(
-    mut commands: Commands,
-    unselected_q: Query<(Entity, &MapIcon), (Without<MapIconSelected>, Without<NonPlayableShip>)>,
-    selected_q: Query<Entity, (With<MapIconSelected>, Without<NonPlayableShip>)>,
-    cursor: Res<MapCursor>,
-    mouse: Res<ButtonInput<MouseButton>>,
-    remove_trigger: Option<Res<RemoveSelection>>,
-) {
-    if mouse.just_pressed(MouseButton::Left) {
-        if remove_trigger.is_none() {
-            if selected_q.is_empty() {
-                for (entity, icon) in unselected_q {
-                    let icon_pos = icon.get_pos();
-                    if check_if_clicked_inside_an_object(icon_pos, cursor.pos, 20., 20.) {
-                        println!("SELECTED A SHIP.");
-                        commands.entity(entity).insert(MapIconSelected);
-                        return;
-                    }
-                }
-            }
-        } else {
-            for entity in selected_q {
-                commands.entity(entity).remove::<MapIconSelected>();
-            }
-            commands.remove_resource::<RemoveSelection>();
-        }
-    }
-}
+// pub fn select(
+//     mut commands: Commands,
+//     unselected_q: Query<(Entity, &MapIcon), (Without<MapIconSelected>, Without<NonPlayableShip>)>,
+//     selected_q: Query<Entity, (With<MapIconSelected>, Without<NonPlayableShip>)>,
+//     cursor: Res<MapCursor>,
+//     mouse: Res<ButtonInput<MouseButton>>,
+//     remove_trigger: Option<Res<RemoveSelection>>,
+// ) {
+//     if mouse.just_pressed(MouseButton::Left) {
+//         if remove_trigger.is_none() {
+//             if selected_q.is_empty() {
+//                 for (entity, icon) in unselected_q {
+//                     let icon_pos = icon.get_pos();
+//                     if check_if_clicked_inside_an_object(icon_pos, cursor.pos, 20., 20.) {
+//                         println!("SELECTED A SHIP.");
+//                         commands.entity(entity).insert(MapIconSelected);
+//                         return;
+//                     }
+//                 }
+//             }
+//         } else {
+//             for entity in selected_q {
+//                 commands.entity(entity).remove::<MapIconSelected>();
+//             }
+//             commands.remove_resource::<RemoveSelection>();
+//         }
+//     }
+// }
 
 // ##################################################### # # # ADDING SHIPS WHILE IN PAUSE  # # # ######################################################
 pub fn add_ship_from_input(

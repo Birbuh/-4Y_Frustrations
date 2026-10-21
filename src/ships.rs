@@ -1,4 +1,4 @@
-use bevy::{ecs::component::Component, math::DVec2, prelude::*};
+use bevy::{ecs::{component::Component, system::entity_command::remove}, math::DVec2, prelude::*};
 
 use crate::{
     map::{
@@ -88,6 +88,22 @@ impl FighterHealth {
 
     pub fn is_ship_wrecked(&self) -> bool {
         self.core <= 0
+    }
+
+    pub fn estimate_wreckage(&self) -> Wreckage {
+        let mut wreckage = ["", ""];
+        if self.are_engines_wrecked() {
+            wreckage[0] = "engines";
+        }
+        if self.are_weapons_wrecked() {
+            wreckage[1] = "weapons";
+        }
+        match wreckage {
+            ["engines", "weapons"] => Wreckage::EnginesWeapons,
+            ["engines", ""] => Wreckage::Engines,
+            ["", "weapons"] => Wreckage::Weapons,
+            _ => Wreckage::None,
+        }
     }
 }
 
@@ -228,4 +244,42 @@ pub fn look_for_enemies(
         }
         Factions::Player => {} // there will be another function for this
     }
+}
+
+#[derive(PartialEq, Eq)]
+pub enum Wreckage {
+    Engines,
+    Weapons,
+    EnginesWeapons,
+    Boom,
+    None,
+}
+
+pub fn update_fighter_texture(
+    commands: &mut Commands,
+    assets: &Res<AssetServer>,
+    entity_tuple: (Entity, Factions, Wreckage),
+) {
+    let (entity, owner, wreckage) = entity_tuple;
+    let image: Handle<Image> = match owner {
+        Factions::TestAlly => match wreckage {
+            Wreckage::Engines => assets.load("icons/fighter_ally-noengines.png"),
+            Wreckage::Weapons => assets.load("icons/fighter_ally-noweapons.png"),
+            Wreckage::EnginesWeapons => assets.load("icons/fighter_ally-noengines.png"),
+            Wreckage::Boom => assets.load("icons/boom.png"),
+            Wreckage::None => return,
+        },
+        Factions::TestEnemy => match wreckage {
+            Wreckage::Engines => assets.load("icons/fighter_enemy-noengines.png"),
+            Wreckage::Weapons => assets.load("icons/fighter_enemy-noweapons.png"),
+            Wreckage::EnginesWeapons => assets.load("icons/fighter_enemy-noengines.png"),
+            Wreckage::Boom => assets.load("icons/boom.png"),
+            Wreckage::None => return,
+        },
+        Factions::Player => return,
+    };
+    commands
+        .entity(entity)
+        .queue_silenced(remove::<Sprite>())
+        .insert(Sprite::from_image(image));
 }

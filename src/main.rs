@@ -9,8 +9,12 @@ use bevy::{math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen};
 
 use crate::{
     map::{
-        MapCamera, MapCursor, MapPlugin, MapState, Paused, Unpaused, add_ship_from_input, draw_sector, fulfill_orders, get_visible_map_objects, order, render_map_icons, render_routes, select, spawn_sector, toggle_pause, update_cursor_pos, update_pos_from_velocity, update_ship_pos,
-    }, npcs::{
+        MapCamera, MapCursor, MapPlugin, MapState, Paused, Unpaused, add_ship_from_input,
+        draw_sector, fulfill_orders, get_visible_map_objects, order, render_map_icons,
+        render_routes, /* select, */ spawn_sector, toggle_pause, update_cursor_pos,
+        update_pos_from_velocity, update_ship_pos,
+    },
+    npcs::{
         ShipAiCooldownTimer, reset_finished_ai_cooldown_timer, ships_ai, tick_ai_cooldown_timer,
     },
 };
@@ -35,7 +39,7 @@ fn main() {
             test_map,
             spawn_sector,
             get_visible_map_objects,
-            render_map_icons,
+            // render_map_icons,
         )
             .chain(),
     )
@@ -58,7 +62,7 @@ fn main() {
             update_cursor_pos,
             add_ship_from_input,
             toggle_pause,
-            (order, select).chain(),
+            (order, /* select */).chain(),
             render_routes,
             draw_sector,
         ),
