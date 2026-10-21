@@ -7,8 +7,6 @@ use crate::{
     ships::look_for_enemies,
 };
 
-#[derive(Component, Debug)]
-pub struct NonPlayableShip;
 
 #[derive(Resource, Debug)]
 pub struct ShipAiCooldownTimer(pub HashMap<Entity, Timer>);

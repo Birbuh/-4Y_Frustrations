@@ -2,26 +2,10 @@ use bevy::{ecs::{component::Component, system::entity_command::remove}, math::DV
 
 use crate::{
     map::{
-        EntityPosInASector, Factions, IconType, MapIcon, MapVisible, Order, RelationType, Velocity,
+        Factions, IconType, MapIcon, MapVisible, Order, RelationType, Velocity,
         is_close_enough,
     },
-    npcs::NonPlayableShip,
 };
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Capacity {
-    max_capacity: f32,
-    used_capacity: f32,
-}
-
-impl Capacity {
-    pub fn new(capacity: f32) -> Self {
-        Self {
-            max_capacity: capacity,
-            used_capacity: 0.,
-        }
-    }
-}
 
 pub trait Ship {
     fn new(
@@ -46,7 +30,7 @@ pub struct FighterHealth {
 }
 
 impl FighterHealth {
-    pub fn new(max_health: i32, shields: i32, repair_speed: i32) -> Self {
+    pub fn new(max_health: i32, repair_speed: i32) -> Self {
         Self {
             engines: max_health,
             core: max_health,
@@ -137,10 +121,6 @@ pub fn spawn_ship(
             Sprite::from_image(image),
             icon.clone(),
             owner,
-            EntityPosInASector {
-                sector: sector_id,
-                pos,
-            },
             MapVisible,
             Transform::from_translation(pos.clone().as_vec2().extend(0.)),
             Velocity::ZERO,
@@ -189,7 +169,7 @@ impl Ship for Fighter {
             acceleration,
             // cargo: Vec::new(),
             shields,
-            health: FighterHealth::new(max_health, shields, repair_speed),
+            health: FighterHealth::new(max_health, repair_speed),
             max_health,
             damage,
         }
@@ -251,7 +231,6 @@ pub enum Wreckage {
     Engines,
     Weapons,
     EnginesWeapons,
-    Boom,
     None,
 }
 
@@ -266,14 +245,12 @@ pub fn update_fighter_texture(
             Wreckage::Engines => assets.load("icons/fighter_ally-noengines.png"),
             Wreckage::Weapons => assets.load("icons/fighter_ally-noweapons.png"),
             Wreckage::EnginesWeapons => assets.load("icons/fighter_ally-noengines.png"),
-            Wreckage::Boom => assets.load("icons/boom.png"),
             Wreckage::None => return,
         },
         Factions::TestEnemy => match wreckage {
             Wreckage::Engines => assets.load("icons/fighter_enemy-noengines.png"),
             Wreckage::Weapons => assets.load("icons/fighter_enemy-noweapons.png"),
             Wreckage::EnginesWeapons => assets.load("icons/fighter_enemy-noengines.png"),
-            Wreckage::Boom => assets.load("icons/boom.png"),
             Wreckage::None => return,
         },
         Factions::Player => return,

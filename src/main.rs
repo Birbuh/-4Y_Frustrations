@@ -10,7 +10,7 @@ use bevy::{math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen};
 use crate::{
     map::{
         MapCamera, MapCursor, MapPlugin, MapState, Paused, Unpaused, add_ship_from_input,
-        draw_sector, fulfill_orders, get_visible_map_objects, order, render_map_icons,
+        draw_sector, fulfill_orders, order,
         render_routes, /* select, */ spawn_sector, toggle_pause, update_cursor_pos,
         update_pos_from_velocity, update_ship_pos,
     },
@@ -38,8 +38,6 @@ fn main() {
         (
             test_map,
             spawn_sector,
-            get_visible_map_objects,
-            // render_map_icons,
         )
             .chain(),
     )

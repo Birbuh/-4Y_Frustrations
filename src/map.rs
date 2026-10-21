@@ -5,7 +5,6 @@ use std::{
 
 use bevy::{
     camera::Camera2d,
-    dev_tools::infinite_grid::{InfiniteGrid, InfiniteGridSettings},
     ecs::{resource::Resource, system::entity_command::despawn},
     input::{
         ButtonInput,
@@ -18,7 +17,7 @@ use bevy::{
 };
 
 use crate::{
-    npcs::{NonPlayableShip, ShipAiCooldownTimer}, ships::{FighterHealth, ShipType, spawn_ship, update_fighter_texture},
+    npcs::{ShipAiCooldownTimer}, ships::{FighterHealth, ShipType, spawn_ship, update_fighter_texture},
 };
 
 pub struct MapPlugin;
@@ -59,7 +58,6 @@ pub enum IconType {
 pub enum RelationType {
     Enemy,
     Ally,
-    Player,
 }
 
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, States)]
@@ -86,17 +84,6 @@ impl MapCamera {
     }
 }
 
-#[derive(Resource, Debug)]
-pub struct MapViewport {
-    pub width: f32,
-    pub height: f32,
-}
-
-#[derive(Component)]
-pub struct EntityPosInASector {
-    pub sector: u16,
-    pub pos: DVec2,
-}
 
 #[derive(Component, Debug, Clone)]
 pub struct MapIcon {
@@ -187,7 +174,6 @@ impl MapIcon {
         match self.relations_type {
             RelationType::Enemy => Color::srgb(1., 0.33, 0.33),
             RelationType::Ally => Color::srgb(0.3, 0.7, 1.),
-            RelationType::Player => Color::srgb(0.2, 1., 0.2),
         }
     }
 
@@ -195,7 +181,6 @@ impl MapIcon {
         match self.relations_type {
             RelationType::Enemy => Color::srgba(1., 0.33, 0.33, 0.67),
             RelationType::Ally => Color::srgba(0.3, 0.7, 1., 0.7),
-            RelationType::Player => Color::srgba(0.2, 1., 0.2, 0.7),
         }
     }
 
@@ -208,56 +193,9 @@ impl MapIcon {
     }
 }
 
-#[derive(Component)]
-pub struct MapSelectable {
-    pub selection_radius: f64,
-}
 
 #[derive(Component)]
 pub struct MapVisible;
-
-#[derive(Debug)]
-pub struct VisibleMapObject {
-    pub entity: Entity,
-    pub obj_type: IconType,
-    pub faction: Factions,
-    pub sector_id: u16,
-    pub relationship: RelationType,
-}
-
-impl VisibleMapObject {
-    pub fn draw(
-        &mut self,
-        commands: &mut Commands,
-        asset_server: &AssetServer,
-        faction: Factions,
-        sector_id: u16,
-        relation_type: RelationType,
-    ) {
-        let ship_path = match relation_type {
-            RelationType::Enemy => "icons/fighter_enemy.png",
-            RelationType::Ally => "icons/fighter_ally.png",
-            RelationType::Player => "icons/fighter_player.png",
-            sth => {
-                println!("oops! {sth:?} isn't implemented yet!");
-                return;
-            }
-        };
-        let image: Handle<Image> = match &self.obj_type {
-            IconType::Ship(ship_type) => match ship_type {
-                ShipType::Fighter(_) => asset_server.load(ship_path),
-            },
-        };
-        commands.entity(self.entity).insert((
-            // Transform::from_translation(self.map_pos.as_vec2().extend(0.)),
-            // Velocity::ZERO,
-            MapSelectable {
-                selection_radius: 33.5,
-            },
-            Sprite::from_image(image),
-        ));
-    }
-}
 
 // ##################################################################### custom velocity cuz why not
 
@@ -432,26 +370,27 @@ pub fn update_map_camera(
 }
 
 // ################################################################### calculates positions
-pub fn map_to_screen(
-    // from map (simulation) to screen (visualisation)
-    map_pos: DVec2,
-    camera: &MapCamera,
-) -> Vec2 {
-    let mut pos = map_pos.clone();
 
-    pos -= camera.center;
-
-    pos.x *= camera.zoom;
-    pos.y *= -camera.zoom;
-
-    pos.x += camera.viewport_size.x as f64 / 2.;
-    pos.y += camera.viewport_size.y as f64 / 2.;
-
-    Vec2 {
-        x: pos.x as f32,
-        y: pos.y as f32,
-    }
-}
+// pub fn map_to_screen(
+//     // from map (simulation) to screen (visualisation)
+//     map_pos: DVec2,
+//     camera: &MapCamera,
+// ) -> Vec2 {
+//     let mut pos = map_pos.clone();
+// 
+//     pos -= camera.center;
+// 
+//     pos.x *= camera.zoom;
+//     pos.y *= -camera.zoom;
+// 
+//     pos.x += camera.viewport_size.x as f64 / 2.;
+//     pos.y += camera.viewport_size.y as f64 / 2.;
+// 
+//     Vec2 {
+//         x: pos.x as f32,
+//         y: pos.y as f32,
+//     }
+// }
 
 pub fn screen_to_map(
     // from screen (visualisation) to map (simulation)
@@ -475,124 +414,45 @@ pub fn screen_to_map(
 }
 
 // ######################################################################### Level of Detail:
+// This will be useful later on (probably)
 
-pub struct MapLoD {
-    pub show_invidual_ships: bool,
-    pub show_fleets: bool,
-    pub show_station_labels: bool,
-    pub show_ship_labels: bool,
-    pub show_routes: bool,
-}
-
-pub fn calculate_lod(camera: Res<MapCamera>) -> MapLoD {
-    let mut show_invidual_ships = false;
-    let mut show_fleets = false;
-    let mut show_station_labels = false;
-    let mut show_ship_labels = false;
-    let show_routes = true; // This is ALWAYS true.
-
-    if camera.zoom > 0. {
-        if camera.zoom < 1. {
-            show_invidual_ships = true;
-            show_station_labels = true;
-            show_ship_labels = true;
-        } else if camera.zoom < 5. {
-            show_fleets = true;
-            show_station_labels = true;
-        } else {
-            show_fleets = true;
-        }
-    }
-    MapLoD {
-        show_invidual_ships,
-        show_fleets,
-        show_station_labels,
-        show_ship_labels,
-        show_routes,
-    }
-}
-
-// ############################################################################ Check for visible objects
-
-#[derive(Resource)]
-pub struct VisibleMapObjects {
-    pub objects: Vec<VisibleMapObject>,
-}
-
-pub fn get_visible_map_objects(
-    mut commands: Commands,
-    current_state: Res<State<MapState>>,
-    entities: Query<
-        (
-            Entity,
-            &EntityPosInASector,
-            &IconType,
-            &Factions,
-            &RelationType,
-        ),
-        With<MapVisible>,
-    >,
-    camera: Res<MapCamera>,
-) {
-    let mut visible_objects: Vec<VisibleMapObject> = Vec::new();
-    match *current_state.get() {
-        MapState::Universe => {}
-        MapState::Sector(sector_id) => {
-            for (entity, pos, obj_type, faction, relationship) in entities {
-                if pos.sector == sector_id {
-                    visible_objects.push(VisibleMapObject {
-                        entity,
-                        obj_type: obj_type.clone(),
-                        faction: *faction,
-                        sector_id,
-                        relationship: relationship.clone(),
-                    });
-                }
-            }
-        }
-    }
-    commands.remove_resource::<VisibleMapObjects>();
-    commands.insert_resource(VisibleMapObjects {
-        objects: visible_objects,
-    });
-}
+// pub struct MapLoD {
+//     pub show_invidual_ships: bool,
+//     pub show_fleets: bool,
+//     pub show_station_labels: bool,
+//     pub show_ship_labels: bool,
+//     pub show_routes: bool,
+// }
+// 
+// pub fn calculate_lod(camera: Res<MapCamera>) -> MapLoD {
+//     let mut show_invidual_ships = false;
+//     let mut show_fleets = false;
+//     let mut show_station_labels = false;
+//     let mut show_ship_labels = false;
+//     let show_routes = true; // This is ALWAYS true.
+// 
+//     if camera.zoom > 0. {
+//         if camera.zoom < 1. {
+//             show_invidual_ships = true;
+//             show_station_labels = true;
+//             show_ship_labels = true;
+//         } else if camera.zoom < 5. {
+//             show_fleets = true;
+//             show_station_labels = true;
+//         } else {
+//             show_fleets = true;
+//         }
+//     }
+//     MapLoD {
+//         show_invidual_ships,
+//         show_fleets,
+//         show_station_labels,
+//         show_ship_labels,
+//         show_routes,
+//     }
+// }
 
 // ##################################################### # # # RENDERING # # # ######################################################
-
-// Background Grid (background itself is basically a fixed color)
-pub fn render_map_grid(mut commands: Commands) {
-    commands.spawn((
-        InfiniteGrid,
-        InfiniteGridSettings {
-            x_axis_color: Color::srgb(0.77, 0.77, 0.77),
-            z_axis_color: Color::srgb(0.77, 0.77, 0.77),
-            minor_line_color: Color::srgb(0.33, 0.33, 0.33),
-            major_line_color: Color::srgb(0.55, 0.55, 0.55),
-            fadeout_distance: 10.,     // this is the thing to experiment with
-            dot_fadeout_strength: 10., // ---||---
-            scale: 5.,
-        },
-    ));
-}
-
-// Objects (map icons)
-pub fn render_map_icons(
-    mut commands: Commands,
-    asset_server: Res<AssetServer>,
-    mut visible_objects: Query<&mut VisibleMapObjects>,
-) {
-    if let Some(mut objects) = visible_objects.iter_mut().next() {
-        for object in objects.objects.iter_mut() {
-            object.draw(
-                &mut commands,
-                &asset_server,
-                object.faction,
-                object.sector_id,
-                object.relationship.clone(),
-            );
-        }
-    }
-}
 
 // ############## Routes
 
@@ -602,7 +462,6 @@ pub enum Order {
     None,
     Fly,
     Attack(Entity),
-    Trade,
 }
 
 #[derive(Component, Clone, Debug)]
@@ -837,8 +696,8 @@ pub fn fulfill_orders(
     for entity_array in attack_vec.clone() {
         if let Ok(
             [
-                (base_entity, base_order, base_route, base_icon, base_child_of),
-                (target_entity, mut target_order, target_route, mut target_icon, target_child_of),
+                (base_entity, _base_order, base_route, base_icon, base_child_of),
+                (target_entity, _target_order, target_route, mut target_icon, target_child_of),
             ],
         ) = orders.get_many_mut(entity_array)
         {
