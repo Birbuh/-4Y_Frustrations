@@ -6,6 +6,7 @@ mod ships;
 use std::collections::HashMap;
 
 use bevy::{math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen};
+use bevy_rapier2d::{plugin::{NoUserData, RapierPhysicsPlugin}, render::RapierDebugRenderPlugin};
 
 use crate::{
     map::{
@@ -15,7 +16,7 @@ use crate::{
         update_pos_from_velocity, update_ship_pos,
     }, npcs::{
         ShipAiCooldownTimer, reset_finished_ai_cooldown_timer, ships_ai, tick_ai_cooldown_timer,
-    }, ships::{spawn_ship_health_bars, update_health_bars},
+    }, ships::{ShootCooldownTimer, ship_bullet_collision, spawn_ship_health_bars, update_health_bars},
 };
 
 fn test_map(mut commands: Commands) {
@@ -31,6 +32,7 @@ fn main() {
     })
     .insert_resource(MapCursor { pos: DVec2::ZERO })
     .insert_resource(ShipAiCooldownTimer(HashMap::new()))
+    .insert_resource(ShootCooldownTimer(Timer::from_seconds(0.2, TimerMode::Once)))
     .insert_resource(Paused)
     .add_systems(
         Startup,
@@ -63,6 +65,7 @@ fn main() {
             (order, /* select */).chain(),
             render_routes,
             draw_sector,
+            ship_bullet_collision,
         ),
     )
     .add_plugins((
@@ -76,6 +79,7 @@ fn main() {
             ..default()
         }),
         MapPlugin,
+        RapierPhysicsPlugin::<NoUserData>::pixels_per_meter(100.0),
     ))
     .insert_state(MapState::Sector(1))
     .run();

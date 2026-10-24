@@ -4,6 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
+# physics
+bevy_rapier2d = "0.36.0"
+
 # UI
 bevy_egui = "0.42"
 bevy-inspector-egui = "0.37"

@@ -21,7 +21,9 @@ use bevy::{
 
 use crate::{
     npcs::ShipAiCooldownTimer,
-    ships::{FighterHealth, ShipType, spawn_ship, update_fighter_texture},
+    ships::{
+        FighterHealth, ShipType, ShootCooldownTimer, shoot, spawn_ship, update_fighter_texture,
+    },
 };
 
 pub struct MapPlugin;
@@ -181,6 +183,30 @@ impl MapIcon {
         }
     }
 
+    pub fn limit_max_vel(&mut self) {
+        match &mut self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.max_vel = fighter.max_speed / 1.5,
+            },
+        }
+    }
+
+    pub fn lift_max_vel_limit(&mut self) {
+        match &mut self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.max_vel = fighter.max_speed,
+            },
+        }
+    }
+
+    pub fn get_max_speed(&self) -> f64 {
+        match &self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.max_speed,
+            },
+        }
+    }
+
     pub fn get_acceleration(&self) -> f64 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -219,7 +245,7 @@ pub struct MapVisible;
 
 #[derive(Component, Debug)]
 pub struct Velocity {
-    speed: f64,
+    pub speed: f64,
 }
 
 pub fn update_pos_from_velocity(
@@ -259,10 +285,10 @@ impl Velocity {
         }
     }
 
-    pub fn brake(&mut self, acceleration: f64, time: &Res<Time>) {
+    pub fn brake(&mut self, acceleration: f64, time: &Res<Time>, max_vel: f64) {
         let new_speed = (self.speed - 4.2 * acceleration * time.delta_secs_f64()).max(0.);
 
-        if self.speed > 0. {
+        if (self.speed > 0.) && !(self.speed < max_vel / 10.) {
             self.speed = new_speed;
         }
     }
@@ -624,14 +650,16 @@ pub fn fulfill_orders(
     mut transform_q: Query<&mut Transform>,
     time: Res<Time>,
     ai_cooldown: ResMut<ShipAiCooldownTimer>,
+    mut attack_cooldown: ResMut<ShootCooldownTimer>,
     _unpaused: If<Res<Unpaused>>,
 ) {
     let mut attack_vec: Vec<[Entity; 2]> = vec![];
     for (entity, order, route, icon, child_of) in &orders {
         if route.is_none() && order.is_none() {
             let acceleration = icon.get_acceleration();
+            let max_vel = icon.get_max_vel();
             if let Ok((mut vel, _)) = map_icons.get_mut(child_of.parent()) {
-                vel.brake(acceleration, &time);
+                vel.brake(acceleration, &time, max_vel);
             }
         }
         match order {
@@ -651,32 +679,26 @@ pub fn fulfill_orders(
                 let acceleration = icon.get_acceleration();
 
                 if let Ok(mut transform) = transform_q.get_mut(parent) {
-                    let direction = endpoint - pos;
+                    let dir = endpoint - pos;
 
-                    let target_angle_quat =
-                        Quat::from_rotation_z((direction.y.atan2(direction.x) - FRAC_PI_2) as f32);
+                    let target_angle = (dir.y.atan2(dir.x) - FRAC_PI_2) as f32;
 
-                    let (_, _, target_angle) = target_angle_quat.to_euler(EulerRot::XYZ);
+                    
                     let (_, _, current_angle) = transform.rotation.to_euler(EulerRot::XYZ);
-                    let (_, _, default_angle) =
-                        Quat::from_rotation_z(2. * time.delta_secs()).to_euler(EulerRot::XYZ);
 
                     let angle_diff = (target_angle - current_angle + PI).rem_euclid(TAU) - PI;
 
-                    if angle_diff > 0. {
-                        if !(angle_diff > -0.1 && angle_diff < 0.1) {
-                            transform.rotate_z(default_angle);
-                        } else {
-                            transform.rotation = target_angle_quat;
-                        }
-                    } else if angle_diff < 0. {
-                        if !(angle_diff > -0.1 && angle_diff < 0.1) {
-                            transform.rotate_z(-default_angle);
-                        } else {
-                            transform.rotation = target_angle_quat;
-                        }
-                    } else {
+                    let turn_speed = 240_f32.to_radians();
+                    let max_turn = turn_speed * time.delta_secs();
+
+                    let turn = angle_diff.clamp(-max_turn, max_turn);
+                    transform.rotate_z(turn);
+                    
+                    if angle_diff.abs() <= max_turn {
+                        transform.rotation = Quat::from_rotation_z(target_angle);
                         commands.entity(parent).insert(Rotated);
+                    } else {
+                        commands.entity(parent).remove::<Rotated>();
                     }
                 }
                 if let Ok((mut vel, rotated)) = map_icons.get_mut(parent) {
@@ -695,11 +717,11 @@ pub fn fulfill_orders(
                         }
                     } else if distance_to_finish <= current_speed as f64 * 42. {
                         if !(matches!(order, Some(&Order::Attack(_)))) {
-                            vel.brake(acceleration, &time);
+                            vel.brake(acceleration, &time, max_vel);
                         }
                     } else {
                         if rotated.is_none() {
-                            vel.add_from_endpoint(max_vel / 10., acceleration / 5., &time);
+                            vel.add_from_endpoint(max_vel, acceleration / 5., &time);
                         } else {
                             vel.add_from_endpoint(max_vel, acceleration, &time);
                         }
@@ -711,15 +733,13 @@ pub fn fulfill_orders(
     for entity_array in attack_vec.clone() {
         if let Ok(
             [
-                (base_entity, _base_order, base_route, base_icon, _base_child_of),
+                (base_entity, _base_order, base_route, mut base_icon, base_child_of),
                 (target_entity, _target_order, target_route, mut target_icon, target_child_of),
             ],
         ) = orders.get_many_mut(entity_array)
         {
+            
             let base_health = base_icon.get_health();
-            if base_health.are_weapons_wrecked() {
-                continue;
-            }
 
             let base_pos = base_icon.get_pos();
             let target_pos = target_icon.get_pos();
@@ -741,21 +761,28 @@ pub fn fulfill_orders(
                     .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
             // } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.) {
             //     commands.entity(base_entity).remove::<MapRoute>();
-            } else if is_close_enough(base_pos, target_pos, 300.) {
-                let damage_dealt = base_icon.get_damage();
-                let mut part = "core";
-                let target_shields = target_icon.get_shields();
-                if let Ok(transform) = transform_q.get(target_child_of.0) {
-                    part = which_part_to_injure(target_pos, base_pos, transform, target_shields);
+            } else if is_close_enough(base_pos, target_pos, 700.) {
+                if let Ok(transform) = transform_q.get(base_child_of.parent()) {
+                    if !base_health.are_weapons_wrecked() {
+                        shoot(
+                            &mut commands,
+                            target_pos,
+                            transform,
+                            &mut attack_cooldown,
+                            &time,
+                        );
+                    }
+                    let forward = (transform.rotation * Vec3::Y).truncate();
+                    let to_target = (target_pos - base_pos).as_vec2().normalize_or_zero();
+                    let facing = forward.dot(to_target);
+                    if facing <= 0.3 {
+                        base_icon.limit_max_vel();
+                    } else {
+                        base_icon.lift_max_vel_limit();
+                    }
                 }
-                let mut target_health = target_icon.get_health();
-                if target_health.are_engines_wrecked() && part == "engines" {
-                    part = "core"
-                } else if target_health.are_weapons_wrecked() && part == "weapons" {
-                    part = "core"
-                }
-                target_icon.injure(damage_dealt, part);
-                target_health = target_icon.get_health();
+
+                let target_health = target_icon.get_health();
                 if target_health.is_ship_wrecked() {
                     commands.entity(target_entity).queue_silenced(despawn());
                     commands.entity(target_child_of.0).queue_silenced(despawn());
@@ -768,12 +795,16 @@ pub fn fulfill_orders(
                         vel.speed = 0.;
                     }
                 } else {
-                        let wreckage = target_health.estimate_wreckage();
-                        update_fighter_texture(
-                            &mut commands,
-                            &asset_server,
-                            (target_child_of.parent(), target_icon.get_faction(), wreckage),
-                        );
+                    let wreckage = target_health.estimate_wreckage();
+                    update_fighter_texture(
+                        &mut commands,
+                        &asset_server,
+                        (
+                            target_child_of.parent(),
+                            target_icon.get_faction(),
+                            wreckage,
+                        ),
+                    );
                 }
             }
         } else if let Ok((entity, _, _, _, _)) = orders.get_mut(entity_array[0]) {
@@ -853,8 +884,8 @@ pub fn add_ship_from_input(
             1,
             cursor.pos,
             Factions::TestAlly,
-            10.,
-            3.3,
+            20.,
+            5.3,
             3000,
             123,
             3333,
@@ -869,8 +900,8 @@ pub fn add_ship_from_input(
             1,
             cursor.pos,
             Factions::TestEnemy,
-            10.,
-            3.3,
+            20.,
+            5.3,
             3000,
             123,
             3333,
