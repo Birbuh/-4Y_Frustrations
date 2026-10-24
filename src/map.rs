@@ -116,6 +116,14 @@ impl MapIcon {
         }
     }
 
+    pub fn get_max_health(&self) -> i32 {
+        match &self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.max_health.clone()
+            }
+        }
+    }
+
     pub fn get_damage(&self) -> i32 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -137,6 +145,14 @@ impl MapIcon {
             IconType::Ship(ship) => match ship {
                 ShipType::Fighter(fighter) => fighter.shields,
             },
+        }
+    }
+    
+    pub fn get_max_shields(&self) -> i32 {
+        match &self.icon_type {
+            IconType::Ship(ship) => match ship {
+                ShipType::Fighter(fighter) => fighter.max_shields
+            }
         }
     }
 

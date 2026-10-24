@@ -1,10 +1,14 @@
-use bevy::{ecs::{component::Component, system::entity_command::remove}, math::DVec2, prelude::*};
+use std::process::Child;
 
-use crate::{
-    map::{
-        Factions, IconType, MapIcon, MapVisible, Order, RelationType, Velocity,
-        is_close_enough,
-    },
+use bevy::{
+    ecs::{component::Component, system::entity_command::remove},
+    math::DVec2,
+    prelude::*,
+};
+use bevy_egui::setup_primary_egui_context_system;
+
+use crate::map::{
+    Factions, IconType, MapIcon, MapVisible, Order, RelationType, Velocity, is_close_enough,
 };
 
 pub trait Ship {
@@ -144,6 +148,7 @@ pub struct Fighter {
     pub acceleration: f64,
     // pub cargo: Vec<(ProductType, Capacity)>,
     pub shields: i32,
+    pub max_shields: i32,
     pub health: FighterHealth,
     pub max_health: i32,
     pub damage: i32,
@@ -169,6 +174,7 @@ impl Ship for Fighter {
             acceleration,
             // cargo: Vec::new(),
             shields,
+            max_shields: shields,
             health: FighterHealth::new(max_health, repair_speed),
             max_health,
             damage,
@@ -259,4 +265,92 @@ pub fn update_fighter_texture(
         .entity(entity)
         .queue_silenced(remove::<Sprite>())
         .insert(Sprite::from_image(image));
+}
+
+#[derive(Component)]
+pub struct FighterHealthBarFill {
+    pub ship: Entity,
+    pub module: Option<usize>, // None -> shields; 0 -> core; 1 -> engines; 2 -> weapons
+}
+
+impl FighterHealthBarFill {
+    const BAR_WIDTH: f32 = 10.;
+    const BAR_HEIGHT: f32 = 2.;
+    pub fn new(ship: Entity, module: Option<usize>) -> Self {
+        Self { ship, module }
+    }
+}
+
+pub fn spawn_ship_health_bars(mut commands: Commands, added_icons: Query<(&ChildOf, Entity), Added<MapIcon>>) {
+    for (childof, icon_entity) in added_icons {
+        let entity = childof.parent();
+        let total_height = 4. * FighterHealthBarFill::BAR_HEIGHT + 8.;
+        let top = total_height / 2. - FighterHealthBarFill::BAR_HEIGHT / 2.;
+        for index in 0..4 {
+            let module = if index == 0 { None } else { Some(index - 1) };
+            let y = top - index as f32 * (FighterHealthBarFill::BAR_HEIGHT + 2.);
+            
+            commands.spawn((
+                Sprite::from_color(
+                    if module.is_none() {
+                        Color::srgb(0.2, 0.55, 1.)
+                    } else {
+                        Color::srgb(0.2, 0.88, 0.33)
+                    },
+                    Vec2::new(
+                        FighterHealthBarFill::BAR_WIDTH,
+                        FighterHealthBarFill::BAR_HEIGHT,
+                    ),
+                ),
+                Transform::from_xyz(0., y as f32, 3.),
+                FighterHealthBarFill::new(icon_entity, module),
+                ChildOf(entity)
+            ));
+        }
+    }
+}
+
+pub fn update_health_bars(
+    icons: Query<(&mut MapIcon, &ChildOf)>,
+    healthbars: Query<(&FighterHealthBarFill, &mut Sprite, &mut Transform)>,
+) {
+    for (bar, mut sprite, mut transform) in healthbars {
+        if let Ok((icon, _)) = icons.get(bar.ship) {
+            
+            let health = icon.get_health();
+            let max_health = icon.get_max_health();
+    
+            let (current, max) = match bar.module {
+                None => (icon.get_shields(), icon.get_max_shields()),
+                Some(n) => match n {
+                    0 => (health.core, max_health),
+                    1 => (health.engines, max_health),
+                    2 => (health.weapons, max_health),
+                    _ => {
+                        continue;
+                    }
+                },
+            };
+            let ratio = if max > 0 {
+                (current as f32 / max as f32).clamp(0., 1.)
+            } else {
+                0.
+            };
+    
+            let bar_width = ratio * FighterHealthBarFill::BAR_WIDTH;
+            sprite.custom_size = Some(Vec2::new(bar_width, FighterHealthBarFill::BAR_HEIGHT));
+    
+            transform.translation.x = -FighterHealthBarFill::BAR_WIDTH / 2. + bar_width / 2.;
+    
+            sprite.color = if bar.module.is_none() {
+                Color::srgb(0.2, 0.55, 1.)
+            } else if ratio > 0.6 {
+                Color::srgb(0.2, 0.88, 0.33)
+            } else if ratio > 0.25 {
+                Color::srgb(1.0, 0.33, 0.88)
+            } else {
+                Color::srgb(1.0, 0.2, 0.2)
+            };
+        }
+    }
 }
