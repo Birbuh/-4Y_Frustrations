@@ -308,10 +308,7 @@ pub fn check_if_clicked_inside_an_object(
 }
 
 pub fn is_close_enough(pos1: DVec2, pos2: DVec2, offset: f64) -> bool {
-    let condition_x = pos1.x.abs() - offset <= pos2.x.abs();
-    let condition_y = pos1.y.abs() - offset <= pos2.y.abs();
-
-    condition_x && condition_y
+    pos1.distance(pos2) <= offset
 }
 
 pub fn which_part_to_injure(
@@ -738,13 +735,13 @@ pub fn fulfill_orders(
                 commands
                     .entity(base_entity)
                     .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
-            } else if base_route.is_none() && !is_close_enough(base_pos, target_pos, 100.) {
+            } else if base_route.is_none() && !is_close_enough(base_pos, target_pos, 1000.) {
                 commands
                     .entity(base_entity)
                     .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
             // } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.) {
             //     commands.entity(base_entity).remove::<MapRoute>();
-            } else if is_close_enough(base_pos, target_pos, 20.) {
+            } else if is_close_enough(base_pos, target_pos, 300.) {
                 let damage_dealt = base_icon.get_damage();
                 let mut part = "core";
                 let target_shields = target_icon.get_shields();
@@ -861,7 +858,7 @@ pub fn add_ship_from_input(
             3000,
             123,
             3333,
-            2,
+            10,
             RelationType::Ally,
             image,
         );
@@ -877,7 +874,7 @@ pub fn add_ship_from_input(
             3000,
             123,
             3333,
-            2,
+            10,
             RelationType::Enemy,
             image,
         );

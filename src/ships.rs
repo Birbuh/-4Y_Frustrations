@@ -197,7 +197,7 @@ pub fn look_for_enemies(
         Factions::TestAlly => {
             for (entity2, other_icon) in other_ships {
                 let other_ship_pos = other_icon.get_pos();
-                if is_close_enough(ship_pos, other_ship_pos, 50.) {
+                if is_close_enough(ship_pos, other_ship_pos, 1000.) {
                     if entity == entity2 {
                         continue;
                     }
@@ -213,7 +213,7 @@ pub fn look_for_enemies(
         Factions::TestEnemy => {
             for (entity2, other_icon) in other_ships {
                 let other_ship_pos = other_icon.get_pos();
-                if is_close_enough(ship_pos, other_ship_pos, 50.) {
+                if is_close_enough(ship_pos, other_ship_pos, 1000.) {
                     if entity == entity2 {
                         continue;
                     }
