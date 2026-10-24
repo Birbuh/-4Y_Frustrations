@@ -5,7 +5,10 @@ use std::{
 
 use bevy::{
     camera::Camera2d,
-    ecs::{resource::Resource, system::entity_command::despawn},
+    ecs::{
+        resource::Resource,
+        system::entity_command::{despawn, remove},
+    },
     input::{
         ButtonInput,
         keyboard::KeyCode,
@@ -17,7 +20,8 @@ use bevy::{
 };
 
 use crate::{
-    npcs::{ShipAiCooldownTimer}, ships::{FighterHealth, ShipType, spawn_ship, update_fighter_texture},
+    npcs::ShipAiCooldownTimer,
+    ships::{FighterHealth, ShipType, spawn_ship, update_fighter_texture},
 };
 
 pub struct MapPlugin;
@@ -84,7 +88,6 @@ impl MapCamera {
     }
 }
 
-
 #[derive(Component, Debug, Clone)]
 pub struct MapIcon {
     // pub size: f32,
@@ -119,8 +122,8 @@ impl MapIcon {
     pub fn get_max_health(&self) -> i32 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
-                ShipType::Fighter(fighter) => fighter.max_health.clone()
-            }
+                ShipType::Fighter(fighter) => fighter.max_health.clone(),
+            },
         }
     }
 
@@ -147,12 +150,12 @@ impl MapIcon {
             },
         }
     }
-    
+
     pub fn get_max_shields(&self) -> i32 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
-                ShipType::Fighter(fighter) => fighter.max_shields
-            }
+                ShipType::Fighter(fighter) => fighter.max_shields,
+            },
         }
     }
 
@@ -208,7 +211,6 @@ impl MapIcon {
         }
     }
 }
-
 
 #[derive(Component)]
 pub struct MapVisible;
@@ -393,15 +395,15 @@ pub fn update_map_camera(
 //     camera: &MapCamera,
 // ) -> Vec2 {
 //     let mut pos = map_pos.clone();
-// 
+//
 //     pos -= camera.center;
-// 
+//
 //     pos.x *= camera.zoom;
 //     pos.y *= -camera.zoom;
-// 
+//
 //     pos.x += camera.viewport_size.x as f64 / 2.;
 //     pos.y += camera.viewport_size.y as f64 / 2.;
-// 
+//
 //     Vec2 {
 //         x: pos.x as f32,
 //         y: pos.y as f32,
@@ -439,14 +441,14 @@ pub fn screen_to_map(
 //     pub show_ship_labels: bool,
 //     pub show_routes: bool,
 // }
-// 
+//
 // pub fn calculate_lod(camera: Res<MapCamera>) -> MapLoD {
 //     let mut show_invidual_ships = false;
 //     let mut show_fleets = false;
 //     let mut show_station_labels = false;
 //     let mut show_ship_labels = false;
 //     let show_routes = true; // This is ALWAYS true.
-// 
+//
 //     if camera.zoom > 0. {
 //         if camera.zoom < 1. {
 //             show_invidual_ships = true;
@@ -689,10 +691,10 @@ pub fn fulfill_orders(
 
                     if distance_to_finish < 1. {
                         vel.speed = 0.;
-                        commands.entity(parent).remove::<Rotated>();
-                        commands.entity(entity).remove::<MapRoute>();
+                        commands.entity(parent).queue_silenced(remove::<Rotated>());
+                        commands.entity(entity).queue_silenced(remove::<MapRoute>());
                         if order == Some(&Order::Fly) {
-                            commands.entity(entity).remove::<Order>();
+                            commands.entity(entity).queue_silenced(remove::<Order>());
                         }
                     } else if distance_to_finish <= current_speed as f64 * 42. {
                         if !(matches!(order, Some(&Order::Attack(_)))) {
@@ -712,16 +714,12 @@ pub fn fulfill_orders(
     for entity_array in attack_vec.clone() {
         if let Ok(
             [
-                (base_entity, _base_order, base_route, base_icon, base_child_of),
+                (base_entity, _base_order, base_route, base_icon, _base_child_of),
                 (target_entity, _target_order, target_route, mut target_icon, target_child_of),
             ],
         ) = orders.get_many_mut(entity_array)
         {
             let base_health = base_icon.get_health();
-            {
-                let wreckage = base_health.estimate_wreckage();
-                update_fighter_texture(&mut commands, &asset_server, (base_child_of.parent(), base_icon.get_faction(), wreckage));
-            }
             if base_health.are_weapons_wrecked() {
                 continue;
             }
@@ -732,7 +730,7 @@ pub fn fulfill_orders(
                 if timer.is_finished() {
                     commands
                         .entity(base_entity)
-                        .remove::<MapRoute>()
+                        .queue_silenced(remove::<MapRoute>())
                         .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
                 }
             }
@@ -746,39 +744,47 @@ pub fn fulfill_orders(
                     .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
             // } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.) {
             //     commands.entity(base_entity).remove::<MapRoute>();
-            } else if is_close_enough(base_pos, target_pos, 100.) {
+            } else if is_close_enough(base_pos, target_pos, 20.) {
                 let damage_dealt = base_icon.get_damage();
                 let mut part = "core";
                 let target_shields = target_icon.get_shields();
                 if let Ok(transform) = transform_q.get(target_child_of.0) {
                     part = which_part_to_injure(target_pos, base_pos, transform, target_shields);
                 }
-                let target_health = target_icon.get_health();
+                let mut target_health = target_icon.get_health();
                 if target_health.are_engines_wrecked() && part == "engines" {
                     part = "core"
                 } else if target_health.are_weapons_wrecked() && part == "weapons" {
                     part = "core"
                 }
                 target_icon.injure(damage_dealt, part);
+                target_health = target_icon.get_health();
                 if target_health.is_ship_wrecked() {
                     commands.entity(target_entity).queue_silenced(despawn());
                     commands.entity(target_child_of.0).queue_silenced(despawn());
                     commands
                         .entity(base_entity)
-                        .remove::<Order>()
-                        .remove::<MapRoute>()
-                        .remove::<Rotated>();
+                        .queue_silenced(remove::<Order>())
+                        .queue_silenced(remove::<MapRoute>())
+                        .queue_silenced(remove::<Rotated>());
                     if let Ok((mut vel, _)) = map_icons.get_mut(base_entity) {
                         vel.speed = 0.;
                     }
+                } else {
+                        let wreckage = target_health.estimate_wreckage();
+                        update_fighter_texture(
+                            &mut commands,
+                            &asset_server,
+                            (target_child_of.parent(), target_icon.get_faction(), wreckage),
+                        );
                 }
             }
         } else if let Ok((entity, _, _, _, _)) = orders.get_mut(entity_array[0]) {
             commands
                 .entity(entity)
-                .remove::<Order>()
-                .remove::<MapRoute>()
-                .remove::<Rotated>();
+                .queue_silenced(remove::<Order>())
+                .queue_silenced(remove::<MapRoute>())
+                .queue_silenced(remove::<Rotated>());
         }
     }
 }
@@ -855,7 +861,7 @@ pub fn add_ship_from_input(
             3000,
             123,
             3333,
-            20,
+            2,
             RelationType::Ally,
             image,
         );
@@ -871,7 +877,7 @@ pub fn add_ship_from_input(
             3000,
             123,
             3333,
-            20,
+            2,
             RelationType::Enemy,
             image,
         );

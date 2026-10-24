@@ -29,7 +29,7 @@ pub fn ships_ai(
         } else {
             (*cooldown_timer)
                 .0
-                .insert(entity, Timer::from_seconds(1., TimerMode::Once));
+                .insert(entity, Timer::from_seconds(0.3, TimerMode::Once));
         }
     }
 }

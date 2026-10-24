@@ -1,9 +1,7 @@
 use std::process::Child;
 
 use bevy::{
-    ecs::{component::Component, system::entity_command::remove},
-    math::DVec2,
-    prelude::*,
+    ecs::{component::Component, system::entity_command::{insert, remove}}, math::DVec2, prelude::*,
 };
 use bevy_egui::setup_primary_egui_context_system;
 
@@ -199,7 +197,7 @@ pub fn look_for_enemies(
         Factions::TestAlly => {
             for (entity2, other_icon) in other_ships {
                 let other_ship_pos = other_icon.get_pos();
-                if is_close_enough(ship_pos, other_ship_pos, 100.) {
+                if is_close_enough(ship_pos, other_ship_pos, 50.) {
                     if entity == entity2 {
                         continue;
                     }
@@ -215,7 +213,7 @@ pub fn look_for_enemies(
         Factions::TestEnemy => {
             for (entity2, other_icon) in other_ships {
                 let other_ship_pos = other_icon.get_pos();
-                if is_close_enough(ship_pos, other_ship_pos, 100.) {
+                if is_close_enough(ship_pos, other_ship_pos, 50.) {
                     if entity == entity2 {
                         continue;
                     }
@@ -250,21 +248,23 @@ pub fn update_fighter_texture(
         Factions::TestAlly => match wreckage {
             Wreckage::Engines => assets.load("icons/fighter_ally-noengines.png"),
             Wreckage::Weapons => assets.load("icons/fighter_ally-noweapons.png"),
-            Wreckage::EnginesWeapons => assets.load("icons/fighter_ally-noengines.png"),
+            Wreckage::EnginesWeapons => assets.load("icons/fighter_ally-noengines-noweapons.png"),
             Wreckage::None => return,
         },
         Factions::TestEnemy => match wreckage {
             Wreckage::Engines => assets.load("icons/fighter_enemy-noengines.png"),
             Wreckage::Weapons => assets.load("icons/fighter_enemy-noweapons.png"),
-            Wreckage::EnginesWeapons => assets.load("icons/fighter_enemy-noengines.png"),
+            Wreckage::EnginesWeapons => assets.load("icons/fighter_enemy-noengines-noweapons.png"),
             Wreckage::None => return,
         },
         Factions::Player => return,
     };
-    commands
-        .entity(entity)
-        .queue_silenced(remove::<Sprite>())
-        .insert(Sprite::from_image(image));
+    
+    commands.queue(move |world: &mut World| {
+        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+            entity_mut.insert(Sprite::from_image(image));
+        }
+    });
 }
 
 #[derive(Component)]
