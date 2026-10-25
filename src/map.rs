@@ -759,7 +759,7 @@ pub fn fulfill_orders(
         if let Ok(
             [
                 (base_entity, _base_order, base_route, mut base_icon, base_child_of),
-                (target_entity, _target_order, target_route, mut target_icon, target_child_of),
+                (target_entity, _target_order, target_route, target_icon, target_child_of),
             ],
         ) = orders.get_many_mut(entity_array)
         {
@@ -785,13 +785,14 @@ pub fn fulfill_orders(
                     .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
             // } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.) {
             //     commands.entity(base_entity).remove::<MapRoute>();
-            } else if is_close_enough(base_pos, target_pos, 1500.) {
+            } if is_close_enough(base_pos, target_pos, 1500.) {
                 if let Ok(transform) = transform_q.get(base_child_of.parent()) {
                     if !base_health.are_weapons_wrecked() {
                         shoot(
                             &mut commands,
                             target_pos,
                             transform,
+                            &base_icon,
                             &mut attack_cooldown,
                             &time,
                         );
@@ -815,20 +816,9 @@ pub fn fulfill_orders(
                         .queue_silenced(remove::<Order>())
                         .queue_silenced(remove::<MapRoute>())
                         .queue_silenced(remove::<Rotated>());
-                    if let Ok((mut vel, _)) = map_icons.get_mut(base_entity) {
+                    if let Ok((mut vel, _)) = map_icons.get_mut(base_child_of.parent()) {
                         vel.speed = 0.;
                     }
-                } else {
-                    let wreckage = target_health.estimate_wreckage();
-                    update_fighter_texture(
-                        &mut commands,
-                        &asset_server,
-                        (
-                            target_child_of.parent(),
-                            target_icon.get_faction(),
-                            wreckage,
-                        ),
-                    );
                 }
             }
         } else if let Ok((entity, _, _, _, _)) = orders.get_mut(entity_array[0]) {
@@ -908,12 +898,12 @@ pub fn add_ship_from_input(
             1,
             cursor.pos,
             Factions::TestAlly,
-            50.,
-            10.3,
-            3000,
-            123,
-            3333,
-            10,
+            72.,
+            23.,
+            700,
+            3,
+            733,
+            30,
             RelationType::Ally,
             image,
         );
@@ -924,12 +914,12 @@ pub fn add_ship_from_input(
             1,
             cursor.pos,
             Factions::TestEnemy,
-            50.,
-            10.3,
-            3000,
-            123,
-            3333,
-            10,
+            75.,
+            25.,
+            300,
+            3,
+            333,
+            40,
             RelationType::Enemy,
             image,
         );

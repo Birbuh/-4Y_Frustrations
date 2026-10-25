@@ -16,7 +16,7 @@ use crate::{
         update_pos_from_velocity, update_ship_pos,
     }, npcs::{
         ShipAiCooldownTimer, reset_finished_ai_cooldown_timer, ships_ai, tick_ai_cooldown_timer,
-    }, ships::{ShootCooldownTimer, ship_bullet_collision, spawn_ship_health_bars, update_health_bars},
+    }, ships::{ShootCooldownTimer, reset_shoot_cooldown, ship_bullet_collision, spawn_ship_health_bars, update_fighter_texture, update_health_bars, tick_shoot_cooldown},
 };
 
 fn test_map(mut commands: Commands) {
@@ -45,12 +45,14 @@ fn main() {
     .add_systems(
         FixedUpdate,
         (
+            tick_shoot_cooldown,
             tick_ai_cooldown_timer,
             update_pos_from_velocity,
             update_ship_pos,
             fulfill_orders,
             ship_bullet_collision,
             ships_ai,
+            reset_shoot_cooldown,
             reset_finished_ai_cooldown_timer,
         )
             .chain()
@@ -63,8 +65,9 @@ fn main() {
             (add_ship_from_input, spawn_ship_health_bars).chain(),
             toggle_pause,
             update_health_bars,
+            update_fighter_texture,
             (order, /* select */).chain(),
-            render_routes,
+            // render_routes,
             draw_sector,
         ),
     )

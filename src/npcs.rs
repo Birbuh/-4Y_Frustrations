@@ -16,10 +16,10 @@ pub struct Fleed;
 // npses is a plural to NPS (NonPlayableShip). (:
 pub fn ships_ai(
     mut commands: Commands,
-    npses: Query<(Entity, &MapIcon, Option<&Fleed>, Option<&MapRoute>)>,
+    npses: Query<(Entity, &MapIcon, Option<&Fleed>, Option<&MapRoute>, Option<&Order>)>,
     mut cooldown_timer: If<ResMut<ShipAiCooldownTimer>>,
 ) {
-    for (entity, icon, fleed, route) in npses {
+    for (entity, icon, fleed, route, _order) in npses {
         if icon.get_faction() == Factions::Player {
             continue;
         }

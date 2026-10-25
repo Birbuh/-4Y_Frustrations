@@ -10,9 +10,13 @@ use bevy_rapier2d::{
     rapier::prelude::Vec2,
 };
 
-use crate::{map::{
-    Factions, IconType, MapIcon, MapRoute, MapVisible, Order, RelationType, Velocity, is_close_enough, which_part_to_injure,
-}, npcs::Fleed};
+use crate::{
+    map::{
+        Factions, IconType, MapIcon, MapRoute, MapVisible, Order, RelationType, Velocity,
+        is_close_enough, which_part_to_injure,
+    },
+    npcs::Fleed,
+};
 
 pub trait Ship {
     fn new(
@@ -156,7 +160,7 @@ pub struct Fighter {
     pub sector_id: Option<u16>,
     pub pos: DVec2, // IMPORTANT: This is the position INSIDE THE SECTOR, not the whole map.
     pub owner: Factions,
-    pub max_vel: f64, // max vel of the ship at this moment
+    pub max_vel: f64,   // max vel of the ship at this moment
     pub max_speed: f64, // max speed of the ship in overall
     pub acceleration: f64,
     // pub cargo: Vec<(ProductType, Capacity)>,
@@ -204,14 +208,20 @@ pub enum ShipType {
 pub fn look_for_enemies(
     commands: &mut Commands,
     ship: (Entity, &MapIcon),
-    other_ships: &Query<(Entity, &MapIcon, Option<&Fleed>, Option<&MapRoute>)>,
+    other_ships: &Query<(
+        Entity,
+        &MapIcon,
+        Option<&Fleed>,
+        Option<&MapRoute>,
+        Option<&Order>,
+    )>,
     ship_pos: DVec2,
 ) {
     let (entity, icon) = ship;
     let ship_owner = icon.get_faction();
     match ship_owner {
         Factions::TestAlly => {
-            for (entity2, other_icon, _, _) in other_ships {
+            for (entity2, other_icon, _, _, other_order) in other_ships {
                 if entity == entity2 {
                     continue;
                 }
@@ -220,6 +230,9 @@ pub fn look_for_enemies(
                     match other_icon.get_faction() {
                         Factions::TestEnemy => {
                             commands.entity(entity).insert(Order::Attack(entity2));
+                            if other_order.is_none() {
+                                break;
+                            }
                         }
                         _ => {}
                     }
@@ -227,7 +240,7 @@ pub fn look_for_enemies(
             }
         }
         Factions::TestEnemy => {
-            for (entity2, other_icon, _, _) in other_ships {
+            for (entity2, other_icon, _, _, other_order) in other_ships {
                 if entity == entity2 {
                     continue;
                 }
@@ -236,6 +249,9 @@ pub fn look_for_enemies(
                     match other_icon.get_faction() {
                         Factions::Player | Factions::TestAlly => {
                             commands.entity(entity).insert(Order::Attack(entity2));
+                            if other_order.is_none() {
+                                break;
+                            }
                         }
                         _ => {}
                     }
@@ -246,6 +262,8 @@ pub fn look_for_enemies(
     }
 }
 
+// #################################################### # # # HEALTH -> SCREEN # # # ####################################################
+
 #[derive(PartialEq, Eq, Debug)]
 pub enum Wreckage {
     Engines,
@@ -255,32 +273,40 @@ pub enum Wreckage {
 }
 
 pub fn update_fighter_texture(
-    commands: &mut Commands,
-    assets: &Res<AssetServer>,
-    entity_tuple: (Entity, Factions, Wreckage),
+    mut commands: Commands,
+    assets: Res<AssetServer>,
+    ship_query: Query<(&ChildOf, &MapIcon)>,
 ) {
-    let (entity, owner, wreckage) = entity_tuple;
-    let image: Handle<Image> = match owner {
-        Factions::TestAlly => match wreckage {
-            Wreckage::Engines => assets.load("icons/fighter_ally-noengines.png"),
-            Wreckage::Weapons => assets.load("icons/fighter_ally-noweapons.png"),
-            Wreckage::EnginesWeapons => assets.load("icons/fighter_ally-noengines-noweapons.png"),
-            Wreckage::None => return,
-        },
-        Factions::TestEnemy => match wreckage {
-            Wreckage::Engines => assets.load("icons/fighter_enemy-noengines.png"),
-            Wreckage::Weapons => assets.load("icons/fighter_enemy-noweapons.png"),
-            Wreckage::EnginesWeapons => assets.load("icons/fighter_enemy-noengines-noweapons.png"),
-            Wreckage::None => return,
-        },
-        Factions::Player => return,
-    };
+    for (childof, icon) in ship_query {
+        let entity = childof.parent();
+        let owner = icon.get_faction();
+        let wreckage = icon.get_health().estimate_wreckage();
+        let image: Handle<Image> = match owner {
+            Factions::TestAlly => match wreckage {
+                Wreckage::Engines => assets.load("icons/fighter_ally-noengines.png"),
+                Wreckage::Weapons => assets.load("icons/fighter_ally-noweapons.png"),
+                Wreckage::EnginesWeapons => {
+                    assets.load("icons/fighter_ally-noengines-noweapons.png")
+                }
+                Wreckage::None => return,
+            },
+            Factions::TestEnemy => match wreckage {
+                Wreckage::Engines => assets.load("icons/fighter_enemy-noengines.png"),
+                Wreckage::Weapons => assets.load("icons/fighter_enemy-noweapons.png"),
+                Wreckage::EnginesWeapons => {
+                    assets.load("icons/fighter_enemy-noengines-noweapons.png")
+                }
+                Wreckage::None => return,
+            },
+            Factions::Player => return,
+        };
 
-    commands.queue(move |world: &mut World| {
-        if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-            entity_mut.insert(Sprite::from_image(image));
-        }
-    });
+        commands.queue(move |world: &mut World| {
+            if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
+                entity_mut.insert(Sprite::from_image(image));
+            }
+        });
+    }
 }
 
 #[derive(Component)]
@@ -376,7 +402,7 @@ pub fn update_health_bars(
 // ##################################################### # # # ATTACKING # # # ######################################################
 
 #[derive(Component, Debug)]
-pub struct Bullet;
+pub struct Bullet(pub i32);
 
 #[derive(Resource, Debug)]
 pub struct ShootCooldownTimer(pub Timer);
@@ -385,45 +411,50 @@ pub fn shoot(
     commands: &mut Commands,
     destination: DVec2,
     shooter_transform: &Transform,
+    shooter_icon: &MapIcon,
     cooldown: &mut ResMut<ShootCooldownTimer>,
     time: &Res<Time>,
 ) {
-    cooldown.0.tick(time.delta());
     if cooldown.0.just_finished() {
         let forward = shooter_transform.rotation * Vec3::Y;
         let start_bullet_loc = shooter_transform.translation + forward * 72.;
         let to_target = destination - start_bullet_loc.truncate().as_dvec2();
-        cooldown.0.reset();
-        cooldown.0.unpause();
         if to_target.dot(forward.truncate().as_dvec2()) <= 0. {
             return;
         }
-        let dir = to_target
-            .normalize()
-            .as_vec2();
+        let dir = to_target.normalize().as_vec2();
         let mut transform = Transform::from_translation(start_bullet_loc);
         transform.rotation = Quat::from_rotation_z(dir.y.atan2(dir.x));
         commands.spawn((
             Sprite::from_color(Color::srgb(1., 1., 1.), Vec2::new(3., 10.)),
             transform,
-            bevy_rapier2d::dynamics::Velocity::linear(dir * 2733.),
+            bevy_rapier2d::dynamics::Velocity::linear(dir * 4333.),
             Collider::cuboid(1.5, 5.),
             Ccd::enabled(),
             ActiveEvents::COLLISION_EVENTS,
             CollisionGroups::new(Group::GROUP_2, Group::GROUP_1),
             RigidBody::Dynamic,
             GravityScale(0.),
-            Bullet {},
+            Bullet(shooter_icon.get_damage()),
         ));
     }
 }
 
+pub fn tick_shoot_cooldown(mut cooldown: If<ResMut<ShootCooldownTimer>>, time: Res<Time>) {
+    cooldown.0.0.tick(time.delta());
+}
+pub fn reset_shoot_cooldown(mut cooldown: If<ResMut<ShootCooldownTimer>>) {
+    if cooldown.0.0.is_finished() {
+        cooldown.0.0.reset();
+        cooldown.0.0.unpause();
+    }
+}
 // #################################################### # # # BULLET LOGIC # # # ####################################################
 
 pub fn ship_bullet_collision(
     mut commands: Commands,
     mut collision_events: MessageReader<CollisionEvent>,
-    bullet_query: Query<&Transform, With<Bullet>>,
+    bullet_query: Query<(&Transform, &Bullet)>,
     mut ship_query: Query<(&ChildOf, &mut MapIcon)>,
     ship_t_query: Query<&Transform, Without<Bullet>>,
     children: Query<&Children>,
@@ -442,7 +473,7 @@ pub fn ship_bullet_collision(
                     let entity1_is_ship = ship_query.get(entity1).is_ok();
                     if entity1_is_ship && entity2_is_bullet {
                         if let Ok((icon_parent, mut icon)) = ship_query.get_mut(entity1) {
-                            if let Ok(transform) = bullet_query.get(*h2) {
+                            if let Ok((transform, bullet)) = bullet_query.get(*h2) {
                                 if let Ok(ship_transform) = ship_t_query.get(icon_parent.parent()) {
                                     let target_shields = icon.get_shields();
                                     let mut part = which_part_to_injure(
@@ -458,10 +489,13 @@ pub fn ship_bullet_collision(
                                     {
                                         part = "core";
                                     }
-                                    icon.injure(400, part);
+                                    icon.injure(bullet.0, part);
                                     ship_health = icon.get_health();
                                     if ship_health.is_ship_wrecked() {
                                         commands.entity(entity1).queue_silenced(despawn());
+                                        commands
+                                            .entity(icon_parent.parent())
+                                            .queue_silenced(despawn());
                                     }
                                 }
                             }
@@ -477,7 +511,7 @@ pub fn ship_bullet_collision(
                     let entity2_is_ship = ship_query.get(entity2).is_ok();
                     if entity1_is_bullet && entity2_is_ship {
                         if let Ok((icon_parent, mut icon)) = ship_query.get_mut(entity2) {
-                            if let Ok(transform) = bullet_query.get(*h1) {
+                            if let Ok((transform, bullet)) = bullet_query.get(*h1) {
                                 if let Ok(ship_transform) = ship_t_query.get(icon_parent.parent()) {
                                     let target_shields = icon.get_shields();
                                     let mut part = which_part_to_injure(
@@ -493,7 +527,7 @@ pub fn ship_bullet_collision(
                                     {
                                         part = "core";
                                     }
-                                    icon.injure(400, part);
+                                    icon.injure(bullet.0, part);
                                     ship_health = icon.get_health();
                                     if ship_health.is_ship_wrecked() {
                                         commands.entity(entity2).queue_silenced(despawn());
