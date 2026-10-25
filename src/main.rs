@@ -1,4 +1,9 @@
-// extern crate bevy;
+//! Desktop entry point for the sector battle prototype.
+//!
+//! The fixed-step simulation runs while [`map::Unpaused`] exists. Camera controls
+//! and visual feedback continue every frame; cursor-based commands run after
+//! Bevy has updated camera projection and propagated transforms.
+
 mod map;
 mod npcs;
 mod ships;
@@ -10,13 +15,12 @@ use bevy::{
 };
 use bevy_rapier2d::{
     plugin::{NoUserData, RapierPhysicsPlugin},
-    render::RapierDebugRenderPlugin,
 };
 
 use crate::{
     map::{
         MapCamera, MapCursor, MapPlugin, MapState, Paused, Unpaused, add_ship_from_input,
-        draw_sector, fulfill_orders, order, render_routes, /* select, */ spawn_sector,
+        draw_sector, fulfill_orders, order, spawn_sector,
         toggle_pause, update_cursor_pos, update_pos_from_velocity, update_ship_pos,
     },
     npcs::{
@@ -28,10 +32,12 @@ use crate::{
     },
 };
 
+/// Spawns the single 2D camera used to view the sector.
 fn test_map(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
+/// Configures the prototype scene, resources, plugins, and system ordering.
 fn main() {
     let mut app = App::new();
     app.insert_resource(MapCamera {
@@ -50,6 +56,7 @@ fn main() {
     .add_systems(
         FixedUpdate,
         (
+            // Orders and AI must observe finished timers before the reset systems.
             tick_shoot_cooldown,
             tick_ai_cooldown_timer,
             update_pos_from_velocity,
@@ -60,6 +67,7 @@ fn main() {
             reset_shoot_cooldown,
             reset_finished_ai_cooldown_timer,
         )
+            // Chaining also applies deferred commands between dependent systems.
             .chain()
             .run_if(resource_exists::<Unpaused>),
     )
@@ -77,12 +85,14 @@ fn main() {
     .add_systems(
         PostUpdate,
         (
+            // All click handlers below consume the world position computed here.
             update_cursor_pos,
             add_ship_from_input,
             spawn_ship_health_bars,
             order,
         )
             .chain()
+            // Coordinate conversion needs the current projection and global transform.
             .after(CameraUpdateSystems)
             .after(TransformSystems::Propagate),
     )

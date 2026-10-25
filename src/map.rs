@@ -1,3 +1,13 @@
+//! Sector map state, camera controls, custom ship motion, and order execution.
+//!
+//! Coordinates use a positive-Y-up sector world. Ship sprites face local +Y.
+//! The sprite/collider parent owns motion and transforms; its [`MapIcon`]
+//! child owns ship data, routes, and orders. Entity handles in attack orders
+//! refer to these logical children.
+//!
+//! Camera input runs every frame. Ship simulation runs in fixed steps while
+//! [`Unpaused`] exists. Cursor conversion runs after camera and transform updates.
+
 use std::{
     f32::consts::{PI, TAU},
     f64::consts::FRAC_PI_2,
@@ -9,11 +19,7 @@ use bevy::{
         resource::Resource,
         system::entity_command::{despawn, remove},
     },
-    input::{
-        ButtonInput,
-        keyboard::KeyCode,
-        mouse::MouseWheel,
-    },
+    input::{ButtonInput, keyboard::KeyCode, mouse::MouseWheel},
     math::DVec2,
     prelude::*,
     window::{CursorMoved, PrimaryWindow},
@@ -24,10 +30,11 @@ use rand::random_range;
 use crate::{
     npcs::ShipAiCooldownTimer,
     ships::{
-        FighterHealth, ShipType, ShootCooldownTimer, shoot, spawn_ship, update_fighter_texture,
+        FighterHealth, ShipType, ShootCooldownTimer, shoot, spawn_ship,
     },
 };
 
+/// Registers per-frame camera input and synchronization with Bevy's camera.
 pub struct MapPlugin;
 
 impl Plugin for MapPlugin {
@@ -40,6 +47,7 @@ impl Plugin for MapPlugin {
     }
 }
 
+/// Prototype ownership groups used for hostility decisions and map colors.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub enum Factions {
     TestAlly,
@@ -48,6 +56,7 @@ pub enum Factions {
 }
 
 impl Factions {
+    /// Returns the display color associated with this faction.
     pub fn get_color(&self) -> Color {
         match self {
             Self::TestAlly => Color::srgb(0.5, 0.33, 0.01),
@@ -57,17 +66,20 @@ impl Factions {
     }
 }
 
+/// Domain data represented by a logical map icon.
 #[derive(Component, Clone, Debug, PartialEq)]
 pub enum IconType {
     Ship(ShipType),
 }
 
+/// Display relationship used to color an icon and its route.
 #[derive(Debug, Component, Clone)]
 pub enum RelationType {
     Enemy,
     Ally,
 }
 
+/// Selects the universe view or a sector identified by its numeric ID.
 #[derive(Default, Debug, Clone, Copy, PartialEq, Eq, Hash, States)]
 pub enum MapState {
     #[default]
@@ -75,14 +87,19 @@ pub enum MapState {
     Sector(u16),
 }
 
+/// Map view settings synchronized into the single Bevy 2D camera.
 #[derive(Resource, Debug)]
 pub struct MapCamera {
+    /// Center of the view in sector world coordinates.
     pub center: DVec2,
+    /// Magnification; the orthographic projection uses its reciprocal.
     pub zoom: f64,
+    /// Viewport dimensions used only by the legacy `screen_to_map` helper.
     pub viewport_size: Vec2,
 }
 
 impl MapCamera {
+    /// Offsets the map center by a vector already expressed in world units.
     pub fn update_pos_from_vec2(&mut self, vec: &Vec2) {
         let dvec = DVec2 {
             x: vec.x as f64,
@@ -92,14 +109,22 @@ impl MapCamera {
     }
 }
 
+/// Logical ship data and presentation relationship stored on a child entity.
+///
+/// The parent carries the sprite, transform, collider, and [`Velocity`].
+/// Orders and routes belong to this child so their entity references can be
+/// resolved together with the ship's health and position.
 #[derive(Component, Debug, Clone)]
 pub struct MapIcon {
     // pub size: f32,
+    /// Domain state represented by this icon, including fighter health.
     pub icon_type: IconType,
+    /// Relationship used for route colors, separate from ownership.
     pub relations_type: RelationType,
 }
 
 impl MapIcon {
+    /// Creates an icon from its domain data and display relationship.
     pub fn new(icon_type: IconType, relations_type: RelationType) -> Self {
         Self {
             icon_type,
@@ -107,6 +132,7 @@ impl MapIcon {
         }
     }
 
+    /// Returns the ship's current position within its sector.
     pub fn get_pos(&self) -> DVec2 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -115,6 +141,10 @@ impl MapIcon {
         }
     }
 
+    /// Returns an owned snapshot of module health.
+    ///
+    /// Changing the returned value does not mutate the ship; use [`Self::injure`]
+    /// to apply damage.
     pub fn get_health(&self) -> FighterHealth {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -123,6 +153,7 @@ impl MapIcon {
         }
     }
 
+    /// Returns the maximum health of each individual ship module.
     pub fn get_max_health(&self) -> i32 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -131,6 +162,7 @@ impl MapIcon {
         }
     }
 
+    /// Returns the damage assigned to each projectile fired by the ship.
     pub fn get_damage(&self) -> i32 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -139,6 +171,7 @@ impl MapIcon {
         }
     }
 
+    /// Adds a sector-local displacement to the stored ship position.
     pub fn update_pos(&mut self, amount: DVec2) {
         match &mut self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -147,6 +180,7 @@ impl MapIcon {
         };
     }
 
+    /// Returns current shield health, which may be negative after a hit.
     pub fn get_shields(&self) -> i32 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -155,6 +189,7 @@ impl MapIcon {
         }
     }
 
+    /// Returns the ship's initial shield capacity.
     pub fn get_max_shields(&self) -> i32 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -163,6 +198,11 @@ impl MapIcon {
         }
     }
 
+    /// Applies nonnegative damage to a named module or the shields.
+    ///
+    /// Accepted names are `engines`, `core`, `weapons`, and `shields`, ignoring
+    /// ASCII case. Unknown names are logged without changing health. Shield
+    /// damage is subtracted directly; excess damage is not transferred to a module.
     pub fn injure(&mut self, amount: i32, part: &'static str) {
         match &mut self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -177,6 +217,7 @@ impl MapIcon {
         }
     }
 
+    /// Returns the current movement cap, including any combat steering limit.
     pub fn get_max_vel(&self) -> f64 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -185,6 +226,7 @@ impl MapIcon {
         }
     }
 
+    /// Reduces the movement cap to two thirds of the unrestricted maximum.
     pub fn limit_max_vel(&mut self) {
         match &mut self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -193,6 +235,7 @@ impl MapIcon {
         }
     }
 
+    /// Restores the unrestricted movement cap.
     pub fn lift_max_vel_limit(&mut self) {
         match &mut self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -201,7 +244,8 @@ impl MapIcon {
         }
     }
 
-    pub fn get_max_speed(&self) -> f64 {
+    /// Returns the unrestricted movement cap stored in the ship definition.
+    pub fn _get_max_speed(&self) -> f64 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
                 ShipType::Fighter(fighter) => fighter.max_speed,
@@ -209,6 +253,7 @@ impl MapIcon {
         }
     }
 
+    /// Returns the acceleration used by the custom movement controller.
     pub fn get_acceleration(&self) -> f64 {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -217,6 +262,7 @@ impl MapIcon {
         }
     }
 
+    /// Returns the relationship color for the remaining route segment.
     pub fn get_color(&self) -> Color {
         match self.relations_type {
             RelationType::Enemy => Color::srgb(1., 0.33, 0.33),
@@ -224,6 +270,7 @@ impl MapIcon {
         }
     }
 
+    /// Returns the color for the already-travelled portion of a route.
     pub fn get_line_color(&self) -> Color {
         match self.relations_type {
             RelationType::Enemy => Color::srgba(1., 0.33, 0.33, 0.67),
@@ -231,6 +278,7 @@ impl MapIcon {
         }
     }
 
+    /// Returns the owning faction used by AI hostility checks.
     pub fn get_faction(&self) -> Factions {
         match &self.icon_type {
             IconType::Ship(ship) => match ship {
@@ -240,16 +288,26 @@ impl MapIcon {
     }
 }
 
+/// Marks physical entities intended to be displayed on the sector map.
 #[derive(Component)]
 pub struct MapVisible;
 
 // ##################################################################### custom velocity cuz why not
 
+/// Scalar forward motion used by the custom ship movement systems.
+///
+/// This is separate from Rapier's velocity component, which moves bullets.
+/// Ships currently apply `speed` as displacement per fixed simulation step.
 #[derive(Component, Debug)]
 pub struct Velocity {
+    /// Forward displacement applied during each fixed simulation step.
     pub speed: f64,
 }
 
+/// Advances ship parents and their logical icon positions along local +Y.
+///
+/// Displacement is applied once per matching icon child. Ship spawning
+/// therefore relies on one logical `MapIcon` child per physical parent.
 pub fn update_pos_from_velocity(
     mut vel_transform_query: Query<(&mut Velocity, &mut Transform, &Children)>,
     mut children_q: Query<&mut MapIcon>,
@@ -274,8 +332,10 @@ pub fn update_pos_from_velocity(
 }
 
 impl Velocity {
+    /// Stationary initial state used when spawning a ship.
     pub const ZERO: Self = Self { speed: 0. };
 
+    /// Increases speed using elapsed time, capped at the requested maximum.
     pub fn add_from_endpoint(&mut self, max_speed: f64, acceleration: f64, time: &Res<Time>) {
         if self.speed == max_speed {
             return;
@@ -287,6 +347,10 @@ impl Velocity {
         }
     }
 
+    /// Applies the prototype braking rule using elapsed simulation time.
+    ///
+    /// Braking updates speed only while it is at least one tenth of `max_vel`;
+    /// reaching a route endpoint is handled separately by [`fulfill_orders`].
     pub fn brake(&mut self, acceleration: f64, time: &Res<Time>, max_vel: f64) {
         let new_speed = (self.speed - 4.2 * acceleration * time.delta_secs_f64()).max(0.);
 
@@ -298,6 +362,10 @@ impl Velocity {
 
 // ##################################################################### minor update functions.
 
+/// Synchronizes each logical ship position from its parent's transform.
+///
+/// Run after movement and before systems that use `MapIcon` positions for
+/// range checks, target selection, and route following.
 pub fn update_ship_pos(icon_q: Query<(&mut MapIcon, &ChildOf)>, transform_q: Query<&Transform>) {
     for (mut icon, child_of) in icon_q {
         let Ok(transform) = transform_q.get(child_of.parent()) else {
@@ -316,11 +384,16 @@ pub fn update_ship_pos(icon_q: Query<(&mut MapIcon, &ChildOf)>, transform_q: Que
 
 // ##################################################################### some minor markers and other stuff (bevy)
 
+/// Marks a physical ship parent aligned with its current route endpoint.
 #[derive(Component, Debug)]
 pub struct Rotated;
 
 // ##################################################################### some minor helper functions
 
+/// Tests whether a point is strictly inside an axis-aligned hit rectangle.
+///
+/// `add_x` and `add_y` are half-extents in world units; boundary points do not
+/// count as hits.
 pub fn check_if_clicked_inside_an_object(
     object_center: DVec2,
     click: DVec2,
@@ -335,10 +408,16 @@ pub fn check_if_clicked_inside_an_object(
     condition_down && condition_up && condition_left && condition_right
 }
 
+/// Returns whether two sector positions are within an inclusive distance.
 pub fn is_close_enough(pos1: DVec2, pos2: DVec2, offset: f64) -> bool {
     pos1.distance(pos2) <= offset
 }
 
+/// Selects shields or a ship module using the relative attack position.
+///
+/// Any positive shield health absorbs the hit. With shields depleted, local
+/// +Y is the core/front, -Y is the engines/rear, and side hits target weapons.
+/// The caller redirects hits on already-destroyed modules to the core.
 pub fn which_part_to_injure(
     def_pos: DVec2,
     atk_pos: DVec2,
@@ -364,6 +443,10 @@ pub fn which_part_to_injure(
 
 // ##################################################################### updates the camera.
 
+/// Copies map center and reciprocal zoom into the single 2D camera.
+///
+/// Run after [`update_map_camera`] and before Bevy updates its projection
+/// and propagates transforms. Zoom must be finite and greater than zero.
 pub fn update_camera_from_map_camera(
     map_camera: Res<MapCamera>,
     camera_q: Single<(&mut Transform, &mut Projection), With<Camera2d>>,
@@ -377,6 +460,11 @@ pub fn update_camera_from_map_camera(
     }
 }
 
+/// Reads primary-window scroll and right-button drag input once per frame.
+///
+/// Window-relative cursor deltas are converted to world displacement using
+/// zoom. Consume all movement events even when not dragging so a later
+/// button press cannot replay old cursor motion.
 pub fn update_map_camera(
     // keyboard: Res<ButtonInput<KeyCode>>, // preserved for future
     mouse: Res<ButtonInput<MouseButton>>,
@@ -444,6 +532,11 @@ pub fn update_map_camera(
 //     }
 // }
 
+/// Legacy conversion using the viewport dimensions stored in [`MapCamera`].
+///
+/// Assumes an unrotated, centered orthographic viewport and positive zoom.
+/// Active cursor handling uses [`Camera::viewport_to_world_2d`] instead, so
+/// it follows the actual camera and window dimensions.
 pub fn screen_to_map(
     // from screen (visualisation) to map (simulation)
     screen_pos: Vec2,
@@ -508,21 +601,29 @@ pub fn screen_to_map(
 
 // ############## Routes
 
+/// Command attached to a logical `MapIcon` child.
+///
+/// The prototype can represent idleness as either `Order::None` or no order
+/// component; systems currently distinguish those representations.
 #[derive(Component, Clone, Debug, Default, PartialEq, Eq)]
 pub enum Order {
     #[default]
     None,
     Fly,
+    /// Attack the child entity carrying the target's `MapIcon`.
     Attack(Entity),
     Flee,
 }
 
+/// Sector-local route points used for steering and route visualization.
 #[derive(Component, Clone, Debug)]
 pub struct MapRoute {
+    /// First point is the visual route origin; the last is the steering target.
     pub path_endpoints: Vec<DVec2>,
 }
 
 impl MapRoute {
+    /// Creates a direct route with a start point and a destination.
     pub fn new(start: DVec2, end: DVec2) -> Self {
         Self {
             path_endpoints: vec![start, end],
@@ -530,28 +631,33 @@ impl MapRoute {
     }
 }
 
-pub fn render_routes(mut gizmos: Gizmos, route_q: Query<(&MapRoute, &MapIcon), With<Order>>) {
-    for (route, icon) in route_q {
-        if let Some(start) = route.path_endpoints.first() {
-            if let Some(end) = route.path_endpoints.last() {
-                let player_pos = icon.get_pos();
-                let line_color = icon.get_line_color(); // this is the line indicating the part of the route that was done by now
-                let line_color_left = icon.get_color(); // this is the line indicating the part of the route that was NOT done by now
-                gizmos.line_2d(start.as_vec2(), player_pos.as_vec2(), line_color);
-                gizmos.line_2d(player_pos.as_vec2(), end.as_vec2(), line_color_left);
-            }
-        }
-    }
-}
+/// Draws travelled and remaining route segments for icons with an order.
+// pub fn render_routes(mut gizmos: Gizmos, route_q: Query<(&MapRoute, &MapIcon), With<Order>>) {
+//     for (route, icon) in route_q {
+//         if let Some(start) = route.path_endpoints.first() {
+//             if let Some(end) = route.path_endpoints.last() {
+//                 let player_pos = icon.get_pos();
+//                 let line_color = icon.get_line_color(); // this is the line indicating the part of the route that was done by now
+//                 let line_color_left = icon.get_color(); // this is the line indicating the part of the route that was NOT done by now
+//                 gizmos.line_2d(start.as_vec2(), player_pos.as_vec2(), line_color);
+//                 gizmos.line_2d(player_pos.as_vec2(), end.as_vec2(), line_color_left);
+//             }
+//         }
+//     }
+// }
 
 // ############ Sectors
 
+/// Circular sector boundary rendered in world coordinates.
 #[derive(Component, Clone)]
 pub struct Sector {
+    /// Sector center in world coordinates.
     pub center: DVec2,
+    /// Radius of the rendered boundary in world units.
     pub radius: f64,
 }
 
+/// Queues the prototype's fixed sector boundary and its owning faction.
 pub fn spawn_sector(mut commands: Commands) {
     // It's here, because it's always the same. It spawns when in MapState::Sector(_), the ID does nothing here.
     let sectors = vec![(
@@ -570,6 +676,7 @@ pub fn spawn_sector(mut commands: Commands) {
     }
 }
 
+/// Draws each sector boundary using its owning faction's color.
 pub fn draw_sector(mut gizmos: Gizmos, sector_q: Query<(&Sector, &Factions)>) {
     for (sector, owner) in sector_q {
         gizmos.circle_2d(
@@ -582,22 +689,31 @@ pub fn draw_sector(mut gizmos: Gizmos, sector_q: Query<(&Sector, &Factions)>) {
 
 // ############################################ orders and selections - the shared part ###########################################:
 
+/// Requests that the selection handler clear the current selection.
+///
+/// The selection handler is currently commented out in this prototype.
 #[derive(Resource, Debug)]
 pub struct RemoveSelection;
 
 // ##################################################### # # # ORDERS # # # ######################################################
 
 //temp
+/// Presence of this resource enables the fixed-step ship simulation.
 #[derive(Resource)]
 pub struct Unpaused;
+/// Presence of this resource enables manual ship spawning.
 #[derive(Resource)]
 pub struct Paused;
 
+/// Toggles simulation marker resources and Rapier stepping on Space.
+///
+/// Camera controls and display updates are scheduled separately and remain
+/// available while ship simulation is paused.
 pub fn toggle_pause(
     mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
     is_unpaused: Option<Res<Unpaused>>,
-    mut rapier_config: Query<&mut RapierConfiguration>,
+    rapier_config: Query<&mut RapierConfiguration>,
 ) {
     if keyboard.just_pressed(KeyCode::Space) {
         if is_unpaused.is_some() {
@@ -618,6 +734,11 @@ pub fn toggle_pause(
 //temp
 
 // making orders!!1!!
+/// Assigns an attack or flight order on left click to selected idle icons.
+///
+/// A click inside another icon's hit rectangle selects that icon as a target;
+/// otherwise the cursor position becomes the destination. Requires an
+/// up-to-date [`MapCursor`] and requests selection removal after assignment.
 pub fn order(
     mut commands: Commands,
     selected_q: Query<(Entity, &MapIcon, &ChildOf), (With<MapIconSelected>, Without<Order>)>,
@@ -655,9 +776,14 @@ pub fn order(
 }
 
 // Fulfilling orders
+/// Executes ship steering, flight, flee conversion, and attack orders.
+///
+/// Uses child entities for orders and health, and their parents for motion
+/// and rotation. Attack pairs are processed in a second pass so both icons
+/// can be borrowed mutably together. Finished AI timers refresh chase routes;
+/// the shared firing timer determines when eligible ships spawn bullets.
 pub fn fulfill_orders(
     mut commands: Commands,
-    asset_server: Res<AssetServer>,
     mut orders: Query<(
         Entity,
         Option<&mut Order>,
@@ -715,10 +841,12 @@ pub fn fulfill_orders(
                 if let Ok(mut transform) = transform_q.get_mut(parent) {
                     let dir = endpoint - pos;
 
+                    // atan2 measures from +X, but the ship sprite points along +Y.
                     let target_angle = (dir.y.atan2(dir.x) - FRAC_PI_2) as f32;
 
                     let (_, _, current_angle) = transform.rotation.to_euler(EulerRot::XYZ);
 
+                    // Wrap into [-PI, PI) to choose the shorter turn across the seam.
                     let angle_diff = (target_angle - current_angle + PI).rem_euclid(TAU) - PI;
 
                     let turn_speed = 300_f32.to_radians();
@@ -745,7 +873,7 @@ pub fn fulfill_orders(
                     let max_vel = icon.get_max_vel();
                     let distance_to_finish = (endpoint - pos).length();
 
-                    // and the fun part!
+                    // Attacks keep their speed near the target; ordinary flights brake.
                     let current_speed = vel.speed;
 
                     if distance_to_finish < 1. {
@@ -770,6 +898,7 @@ pub fn fulfill_orders(
             }
         }
     }
+    // A second pass allows a mutable query borrow of both attacker and target.
     for entity_array in attack_vec.clone() {
         if let Ok(
             [
@@ -838,6 +967,7 @@ pub fn fulfill_orders(
                 }
             }
         } else if let Ok((entity, _, _, _, _)) = orders.get_mut(entity_array[0]) {
+            // The target may have been removed by a previous collision/despawn.
             commands
                 .entity(entity)
                 .queue_silenced(remove::<Order>())
@@ -849,14 +979,22 @@ pub fn fulfill_orders(
 
 // ##################################################### # # # SELECTIONS # # # ######################################################
 
+/// Last successfully converted cursor position in sector world coordinates.
 #[derive(Resource, Debug)]
 pub struct MapCursor {
+    /// Last valid cursor position, retained when the cursor leaves the window.
     pub pos: DVec2,
 }
 
+/// Marks a logical map icon selected for manual order assignment.
 #[derive(Component, Debug)]
 pub struct MapIconSelected;
 
+/// Projects the primary window's cursor through the active 2D camera.
+///
+/// Run after camera projection and transform propagation, before click
+/// handlers. If the cursor is unavailable or projection fails, retain the
+/// last valid world position.
 pub fn update_cursor_pos(
     mut cursor: ResMut<MapCursor>,
     window: Single<&Window, With<PrimaryWindow>>,
@@ -906,6 +1044,10 @@ pub fn update_cursor_pos(
 // }
 
 // ##################################################### # # # ADDING SHIPS WHILE IN PAUSE  # # # ######################################################
+/// Queues prototype fighters at the cursor while [`Paused`] exists.
+///
+/// Left click spawns an ally; middle click spawns an enemy. Ship statistics
+/// are hardcoded here for testing. Run after [`update_cursor_pos`].
 pub fn add_ship_from_input(
     mut commands: Commands,
     cursor: Res<MapCursor>,

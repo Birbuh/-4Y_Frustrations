@@ -1,115 +1,188 @@
 # -4Y: Frustrations
 
-**A 2D space battle simulator built with Rust and Bevy.**
+A desktop 2D space battle simulator built with Rust, Bevy, and Rapier.
 
--4Y: Frustrations is an open-source, non-commercial space-combat project inspired by *X4: Foundations*. For now, development is focused on a smaller, achievable goal: a battle simulator featuring ship navigation, rotation, AI-controlled opponents and modular ship damage.
+Inspired by *X4: Foundations*, the project uses original lore and a 2D presentation. The current focus is a sector battle prototype with AI-controlled fighters, navigation, projectiles, and damage to individual ship modules.
 
-The project uses original lore and a 2D presentation rather than 3D graphics.
-
-> **Development status:** Early prototype. Core movement and combat mechanics are being developed, and many planned features are not yet implemented.
-
-## Features
-
-### Ship movement and navigation
-
-- Ships accelerate and decelerate instead of moving at a constant speed.
-- Ships rotate to face their destinations.
-- Ships can rotate while moving slowly.
-- Movement orders generate visible routes on the sector map.
-- Ships use their orientation to determine their direction of travel.
-
-### Combat
-
-Ships can attack other ships and damage individual modules.
-
-The current damage system includes four components:
-
-- **Shields:** Absorb damage before the other modules are targeted.
-- **Weapons:** Losing this module prevents a ship from attacking.
-- **Engines:** Losing this module prevents a ship from moving.
-- **Core:** Destroying the core destroys the ship.
-
-After the shields are depleted, the attacker's position relative to the target determines which module is hit. Attacks from the sides target weapons, attacks from behind target engines, and attacks from the front can hit the core.
-
-If a module has already been destroyed, subsequent damage can reach the core instead.
-
-### AI-controlled ships
-
-Non-player ships periodically search for nearby hostile ships and can assign themselves attack orders.
-
-Combat movement and targeting are still under development. The AI is currently a basic prototype rather than a complete tactical system.
-
-### Manual ship spawning
-
-During the paused state, ships can be spawned directly at the cursor position:
-
-| Input | Action |
-|---|---|
-| Left mouse button | Spawn an allied fighter |
-| Middle mouse button | Spawn an enemy fighter |
-| Space | Toggle the simulation between paused and unpaused |
-
-Both ship types currently use fixed prototype statistics:
-
-| Property | Value |
-|---|---:|
-| Maximum speed | 10 |
-| Acceleration | 3.3 |
-| Shields | 3,000 |
-| Maximum module health | 3,333 |
-| Repair speed | 123 |
-| Attack damage | 20 |
-
-The allied and enemy fighters use different sprites and faction relationships. These values are currently hardcoded for testing, not balanced gameplay.
-
-## Technology
-
-- **Language:** Rust
-- **Game engine:** Bevy 0.19
-- **UI:** bevy_egui
-- **Input management:** leafwing-input-manager
-- **Graph algorithms:** petgraph
-- **Serialization:** Serde and RON
-
-The project uses Bevy's entity-component-system architecture to organise ships, movement, combat and simulation systems.
+**Status:** early prototype. Combat and movement are under active development; see [Known limitations](#known-limitations) before treating the current behavior as final.
 
 ## Getting started
 
 ### Requirements
 
-- Rust and Cargo
-- A graphics environment supported by Bevy 0.19
-- The platform dependencies required by Bevy
+- Rust 1.95 or newer and Cargo, as required by the current Bevy 0.19 dependency.
+- A native compiler/linker and the platform development libraries required by Bevy.
+- A graphics environment supported by Bevy's renderer.
+
+On Linux, the enabled desktop backends and default Bevy features also require development libraries for windowing, audio, and device input. Build errors from packages such as `alsa-sys`, `libudev-sys`, or `wayland-sys` usually indicate missing system development packages.
 
 ### Run from source
-
-Clone the repository:
 
 ```bash
 git clone https://github.com/Birbuh/-4Y_Frustrations.git
 cd -4Y_Frustrations
-cargo run
+cargo run --locked
 ```
 
-For an optimised build:
+For an optimized build:
 
 ```bash
-cargo build --release
+cargo run --release --locked
 ```
 
-The commands above assume the current source compiles successfully on your platform.
+Run these commands from the repository root so Bevy can find the `assets/` directory. The application opens a fullscreen sector view and starts paused with no ships.
 
-## Development roadmap
+### Start a battle
 
-The immediate goal is to develop the battle simulator into a coherent, playable experience.
+1. Left-click in the sector to place allied fighters.
+2. Middle-click elsewhere nearby to place enemy fighters.
+3. Press **Space** to start the simulation.
+4. Hold the **right mouse button** and drag to pan; use the **mouse wheel** to zoom.
+5. Press **Space** again to pause and place more ships.
 
-Next steps will include:
+AI searches for hostile ships within 2,000 world units. Place opposing ships near each other to trigger combat.
 
-- Making module damage visible to the player.
-- Balancing ship statistics and combat.
-- Publishing a playable release on itch.io
+## Controls
 
-The original long-term vision includes a broader space strategy game, but the current focus is deliberately narrower.
+| Input | Action | Availability |
+| --- | --- | --- |
+| Left mouse button | Spawn an allied fighter at the cursor | Paused |
+| Middle mouse button | Spawn an enemy fighter at the cursor | Paused |
+| Right mouse button + drag | Pan the sector camera | Paused or running |
+| Mouse wheel | Zoom the sector camera | Paused or running |
+| Space | Toggle the simulation and physics pause | Always |
+
+Manual selection is currently disabled. Although order-assignment code exists, selecting a ship and issuing commands is not an active gameplay control.
+
+## Simulation
+
+### Movement and AI
+
+Ships turn toward their route destinations and move along their local forward direction. The custom movement controller applies acceleration, speed limits, and braking.
+
+Non-player ships evaluate their situation at 0.5-second intervals. They search for nearby hostile ships when they have no route and have not fled. A ship whose weapons are destroyed receives a flee order once.
+
+### Combat and damage
+
+Projectiles damage shields or one of three modules:
+
+| Component | Behavior |
+| --- | --- |
+| Shields | Absorb hits while their health is positive |
+| Core | Destruction removes the ship |
+| Engines | Destruction disables movement through the current route-handling logic |
+| Weapons | Destruction prevents further firing |
+
+Once shields are depleted, the projectile's position relative to the target determines the module hit: front hits damage the core, rear hits damage engines, and side hits damage weapons. Further hits on destroyed engines or weapons damage the core.
+
+A hit that depletes shields does not transfer excess damage to a module. The next hit is classified using the depleted shield state.
+
+Allied and enemy fighter textures change when engines, weapons, or both are destroyed. Four bars display shields, core health, engine health, and weapon health, in that order.
+
+### Current fighter settings
+
+These values are hardcoded in [`add_ship_from_input`](src/map.rs). They are prototype settings rather than balanced ship definitions.
+
+| Setting | Ally | Enemy |
+| --- | ---: | ---: |
+| Maximum movement cap | 72 | 75 |
+| Acceleration parameter | 23 | 25 |
+| Initial shields | 700 | 300 |
+| Maximum health per module | 733 | 333 |
+| Damage per projectile | 30 | 40 |
+| Stored repair setting | 3 | 3 |
+
+Automatic repairs are not implemented. Movement values use the current prototype controller's units; they should not be interpreted as physical units per second.
+
+## Code organization
+
+| File | Responsibility |
+| --- | --- |
+| [`src/main.rs`](src/main.rs) | Application setup, initial resources, plugins, and system scheduling |
+| [`src/map.rs`](src/map.rs) | Map state, camera input, cursor conversion, movement, routes, and orders |
+| [`src/ships.rs`](src/ships.rs) | Fighter data, spawning, damage visuals, health bars, projectiles, and collisions |
+| [`src/npcs.rs`](src/npcs.rs) | Periodic AI decisions and decision timers |
+| `assets/icons/` | Fighter textures and other map artwork |
+
+### Ship entities
+
+A ship is represented by a hierarchy:
+
+```text
+Physical ship parent
+  Sprite, Transform, Collider, custom Velocity, faction
+  |
+  +-- Logical icon child
+  |     MapIcon containing Fighter state, optional Order and MapRoute
+  |
+  +-- Health-bar children
+        Sprite, Transform, FighterHealthBarFill
+```
+
+AI and attack targets refer to the **logical icon child**. Movement and rotation modify the **physical parent**. Collision events identify the parent, so collision handling resolves its icon child to apply damage.
+
+Destroying a ship must remove the parent and its children together. Removing only the icon leaves the sprite and collider behind while making the ship unavailable to targeting.
+
+Sector positions use a positive-Y-up coordinate system. Ship sprites face local +Y. Active cursor conversion uses Bevy's camera projection to map window coordinates into this world.
+
+### System ordering
+
+| Schedule | Work |
+| --- | --- |
+| `Startup` | Spawn the camera and prototype sector |
+| `FixedUpdate` | While unpaused: advance timers, move ships, execute orders, process collision damage, evaluate AI, then reset finished timers |
+| `Update` | Camera controls and synchronization, pause input, damage visuals, health bars, and sector drawing |
+| `PostUpdate` | After camera updates and transform propagation: convert the cursor position, handle spawning, create bars, and assign manual orders |
+
+The simulation chain lets order execution and AI observe completed timers before they are reset. Cursor-dependent handlers run after coordinate conversion. These dependencies are documented next to the systems in the source.
+
+## Development
+
+Use the committed `Cargo.lock` when building the application:
+
+```bash
+cargo check --locked
+cargo fmt --all -- --check
+cargo clippy --locked --all-targets
+cargo test --locked
+```
+
+The prototype still has compiler warnings, and automated gameplay regression tests are not yet included.
+
+### Generate code documentation
+
+Public types and functions include Rustdoc comments. Include private modules when generating the application documentation:
+
+```bash
+cargo doc --locked --no-deps --document-private-items
+```
+
+Open `target/doc/y4_frustrations/index.html` to browse the generated documentation. Add `--open` to the command to open it automatically.
+
+### Contributing
+
+Bug reports should include the operating system, reproduction steps, and expected versus observed behavior. For combat issues, include the ship factions and module damage involved.
+
+Keep pull requests focused, describe any gameplay changes, and list the checks performed. Update relevant Rustdoc and this README when controls, ship settings, or system responsibilities change.
+
+## Known limitations
+
+- AI targeting, combat steering, and flight behavior are basic and still being refined.
+- All shooters share a firing timer; individual weapon cooldowns are not implemented.
+- Ship displacement currently depends on the fixed simulation step, and braking can leave residual motion.
+- Manual selection and route drawing are disabled in the application setup.
+- Repair settings are stored but do not drive a repair system.
+- Missed projectiles have no lifetime limit, and AI timer entries are not removed when ships are destroyed.
+- Random flee destinations are not seeded for deterministic replay.
+
+## Roadmap
+
+- Refine targeting, navigation, and combat behavior.
+- Improve simulation cleanup and add regression tests.
+- Balance fighter statistics and combat.
+- Prepare a playable desktop release.
+
+The longer-term vision includes a broader space strategy game; current work focuses on the battle simulator.
 
 ## Development logs
 
@@ -117,8 +190,6 @@ Follow progress on the [Stardance project page](https://stardance.hackclub.com/p
 
 ## License
 
-Licensed under the GNU General Public License v3.0. See [LICENSE.md](LICENSE.md) for details.
+Licensed under the GNU General Public License v3.0. See [LICENSE.md](LICENSE.md).
 
-## Disclaimer
-
--4Y: Frustrations is an independent, unofficial project. It is not affiliated with, endorsed by, or sponsored by Egosoft. *X4: Foundations* is referenced as an inspiration; the project does not claim ownership of Egosoft's intellectual property.
+This is an independent, unofficial project. It is not affiliated with or endorsed by Egosoft. *X4: Foundations* is referenced as an inspiration.
