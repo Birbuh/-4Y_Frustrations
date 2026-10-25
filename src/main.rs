@@ -49,6 +49,7 @@ fn main() {
             update_pos_from_velocity,
             update_ship_pos,
             fulfill_orders,
+            ship_bullet_collision,
             ships_ai,
             reset_finished_ai_cooldown_timer,
         )
@@ -65,7 +66,6 @@ fn main() {
             (order, /* select */).chain(),
             render_routes,
             draw_sector,
-            ship_bullet_collision,
         ),
     )
     .add_plugins((

@@ -3,33 +3,39 @@ use std::collections::HashMap;
 use bevy::{ecs::system::Query, prelude::*};
 
 use crate::{
-    map::{Factions, MapIcon},
-    ships::look_for_enemies,
+    map::{Factions, MapIcon, MapRoute, Order}, ships::look_for_enemies,
 };
 
 
 #[derive(Resource, Debug)]
 pub struct ShipAiCooldownTimer(pub HashMap<Entity, Timer>);
 
+#[derive(Component)]
+pub struct Fleed;
+
 // npses is a plural to NPS (NonPlayableShip). (:
 pub fn ships_ai(
     mut commands: Commands,
-    npses: Query<(Entity, &MapIcon)>,
+    npses: Query<(Entity, &MapIcon, Option<&Fleed>, Option<&MapRoute>)>,
     mut cooldown_timer: If<ResMut<ShipAiCooldownTimer>>,
 ) {
-    for (entity, icon) in npses {
+    for (entity, icon, fleed, route) in npses {
         if icon.get_faction() == Factions::Player {
             continue;
         }
         if let Some(timer) = (*cooldown_timer).0.get_mut(&entity) {
             if timer.is_finished() {
                 let pos = icon.get_pos();
-                look_for_enemies(&mut commands, (entity, icon), &npses, pos);
+                if icon.get_health().are_weapons_wrecked() && fleed.is_none() {
+                    commands.entity(entity).insert(Order::Flee).insert(Fleed);
+                } else if fleed.is_none() && route.is_none() {
+                    look_for_enemies(&mut commands, (entity, icon), &npses, pos);
+                }
             }
         } else {
             (*cooldown_timer)
                 .0
-                .insert(entity, Timer::from_seconds(0.3, TimerMode::Once));
+                .insert(entity, Timer::from_seconds(0.5, TimerMode::Once));
         }
     }
 }

@@ -18,6 +18,8 @@ use bevy::{
     prelude::*,
     window::PrimaryWindow,
 };
+use bevy_rapier2d::plugin::RapierConfiguration;
+use rand::random_range;
 
 use crate::{
     npcs::ShipAiCooldownTimer,
@@ -503,6 +505,7 @@ pub enum Order {
     None,
     Fly,
     Attack(Entity),
+    Flee,
 }
 
 #[derive(Component, Clone, Debug)]
@@ -585,12 +588,19 @@ pub fn toggle_pause(
     mut commands: Commands,
     keyboard: Res<ButtonInput<KeyCode>>,
     is_unpaused: Option<Res<Unpaused>>,
+    mut rapier_config: Query<&mut RapierConfiguration>,
 ) {
     if keyboard.just_pressed(KeyCode::Space) {
         if is_unpaused.is_some() {
+            for mut config in rapier_config {
+                config.physics_pipeline_active = false
+            }
             commands.remove_resource::<Unpaused>();
             commands.insert_resource(Paused);
         } else {
+            for mut config in rapier_config {
+                config.physics_pipeline_active = true
+            }
             commands.insert_resource(Unpaused);
             commands.remove_resource::<Paused>();
         }
@@ -662,20 +672,32 @@ pub fn fulfill_orders(
                 vel.brake(acceleration, &time, max_vel);
             }
         }
+        let pos = icon.get_pos();
         match order {
             Some(Order::Attack(target)) => {
                 attack_vec.push([entity, *target]);
             }
             None => continue,
+            Some(Order::Flee) => {
+                let mut destination = DVec2::new(0., 0.);
+                if pos.x >= 0. {
+                    destination.x = random_range(-5000_f64..-3000_f64);
+                } else {
+                    destination.x = random_range(3000_f64..5000_f64);
+                }
+                if pos.y >= 0. {
+                    destination.y = random_range(-5000_f64..-3000_f64);
+                } else {
+                    destination.y = random_range(3000_f64..5000_f64);
+                }
+                commands.entity(entity).insert(Order::Fly).insert(MapRoute::new(pos, destination));
+            }
             _ => {}
         }
-        if icon.get_health().are_engines_wrecked() {
-            continue;
-        }
+
         if let Some(route) = route {
             if let Some(endpoint) = route.path_endpoints.last() {
                 let parent = child_of.parent();
-                let pos = icon.get_pos();
                 let acceleration = icon.get_acceleration();
 
                 if let Ok(mut transform) = transform_q.get_mut(parent) {
@@ -683,23 +705,26 @@ pub fn fulfill_orders(
 
                     let target_angle = (dir.y.atan2(dir.x) - FRAC_PI_2) as f32;
 
-                    
                     let (_, _, current_angle) = transform.rotation.to_euler(EulerRot::XYZ);
 
                     let angle_diff = (target_angle - current_angle + PI).rem_euclid(TAU) - PI;
 
-                    let turn_speed = 240_f32.to_radians();
+                    let turn_speed = 300_f32.to_radians();
                     let max_turn = turn_speed * time.delta_secs();
 
                     let turn = angle_diff.clamp(-max_turn, max_turn);
                     transform.rotate_z(turn);
-                    
+
                     if angle_diff.abs() <= max_turn {
                         transform.rotation = Quat::from_rotation_z(target_angle);
                         commands.entity(parent).insert(Rotated);
                     } else {
                         commands.entity(parent).remove::<Rotated>();
                     }
+                }        
+                if icon.get_health().are_engines_wrecked() {
+                    commands.entity(entity).remove::<MapRoute>();
+                    continue;
                 }
                 if let Ok((mut vel, rotated)) = map_icons.get_mut(parent) {
                     let max_vel = icon.get_max_vel();
@@ -738,7 +763,6 @@ pub fn fulfill_orders(
             ],
         ) = orders.get_many_mut(entity_array)
         {
-            
             let base_health = base_icon.get_health();
 
             let base_pos = base_icon.get_pos();
@@ -755,13 +779,13 @@ pub fn fulfill_orders(
                 commands
                     .entity(base_entity)
                     .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
-            } else if base_route.is_none() && !is_close_enough(base_pos, target_pos, 1000.) {
+            } else if base_route.is_none() && !is_close_enough(base_pos, target_pos, 2000.) {
                 commands
                     .entity(base_entity)
                     .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
             // } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.) {
             //     commands.entity(base_entity).remove::<MapRoute>();
-            } else if is_close_enough(base_pos, target_pos, 700.) {
+            } else if is_close_enough(base_pos, target_pos, 1500.) {
                 if let Ok(transform) = transform_q.get(base_child_of.parent()) {
                     if !base_health.are_weapons_wrecked() {
                         shoot(
@@ -884,8 +908,8 @@ pub fn add_ship_from_input(
             1,
             cursor.pos,
             Factions::TestAlly,
-            20.,
-            5.3,
+            50.,
+            10.3,
             3000,
             123,
             3333,
@@ -900,8 +924,8 @@ pub fn add_ship_from_input(
             1,
             cursor.pos,
             Factions::TestEnemy,
-            20.,
-            5.3,
+            50.,
+            10.3,
             3000,
             123,
             3333,

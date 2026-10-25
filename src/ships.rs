@@ -10,10 +10,9 @@ use bevy_rapier2d::{
     rapier::prelude::Vec2,
 };
 
-use crate::map::{
-    Factions, IconType, MapIcon, MapVisible, Order, RelationType, Velocity, is_close_enough,
-    which_part_to_injure,
-};
+use crate::{map::{
+    Factions, IconType, MapIcon, MapRoute, MapVisible, Order, RelationType, Velocity, is_close_enough, which_part_to_injure,
+}, npcs::Fleed};
 
 pub trait Ship {
     fn new(
@@ -205,19 +204,19 @@ pub enum ShipType {
 pub fn look_for_enemies(
     commands: &mut Commands,
     ship: (Entity, &MapIcon),
-    other_ships: &Query<(Entity, &MapIcon)>,
+    other_ships: &Query<(Entity, &MapIcon, Option<&Fleed>, Option<&MapRoute>)>,
     ship_pos: DVec2,
 ) {
     let (entity, icon) = ship;
     let ship_owner = icon.get_faction();
     match ship_owner {
         Factions::TestAlly => {
-            for (entity2, other_icon) in other_ships {
+            for (entity2, other_icon, _, _) in other_ships {
+                if entity == entity2 {
+                    continue;
+                }
                 let other_ship_pos = other_icon.get_pos();
-                if is_close_enough(ship_pos, other_ship_pos, 1000.) {
-                    if entity == entity2 {
-                        continue;
-                    }
+                if is_close_enough(ship_pos, other_ship_pos, 2000.) {
                     match other_icon.get_faction() {
                         Factions::TestEnemy => {
                             commands.entity(entity).insert(Order::Attack(entity2));
@@ -228,12 +227,12 @@ pub fn look_for_enemies(
             }
         }
         Factions::TestEnemy => {
-            for (entity2, other_icon) in other_ships {
+            for (entity2, other_icon, _, _) in other_ships {
+                if entity == entity2 {
+                    continue;
+                }
                 let other_ship_pos = other_icon.get_pos();
-                if is_close_enough(ship_pos, other_ship_pos, 1000.) {
-                    if entity == entity2 {
-                        continue;
-                    }
+                if is_close_enough(ship_pos, other_ship_pos, 2000.) {
                     match other_icon.get_faction() {
                         Factions::Player | Factions::TestAlly => {
                             commands.entity(entity).insert(Order::Attack(entity2));
@@ -247,7 +246,7 @@ pub fn look_for_enemies(
     }
 }
 
-#[derive(PartialEq, Eq)]
+#[derive(PartialEq, Eq, Debug)]
 pub enum Wreckage {
     Engines,
     Weapons,
@@ -407,7 +406,7 @@ pub fn shoot(
         commands.spawn((
             Sprite::from_color(Color::srgb(1., 1., 1.), Vec2::new(3., 10.)),
             transform,
-            bevy_rapier2d::dynamics::Velocity::linear(dir * 1333.),
+            bevy_rapier2d::dynamics::Velocity::linear(dir * 2733.),
             Collider::cuboid(1.5, 5.),
             Ccd::enabled(),
             ActiveEvents::COLLISION_EVENTS,
@@ -459,7 +458,7 @@ pub fn ship_bullet_collision(
                                     {
                                         part = "core";
                                     }
-                                    icon.injure(100, part);
+                                    icon.injure(400, part);
                                     ship_health = icon.get_health();
                                     if ship_health.is_ship_wrecked() {
                                         commands.entity(entity1).queue_silenced(despawn());
@@ -494,7 +493,7 @@ pub fn ship_bullet_collision(
                                     {
                                         part = "core";
                                     }
-                                    icon.injure(100, part);
+                                    icon.injure(400, part);
                                     ship_health = icon.get_health();
                                     if ship_health.is_ship_wrecked() {
                                         commands.entity(entity2).queue_silenced(despawn());
