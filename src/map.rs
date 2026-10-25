@@ -724,6 +724,7 @@ pub fn fulfill_orders(
                 }        
                 if icon.get_health().are_engines_wrecked() {
                     commands.entity(entity).remove::<MapRoute>();
+                    commands.entity(child_of.parent()).queue_silenced(remove::<Velocity>());
                     continue;
                 }
                 if let Ok((mut vel, rotated)) = map_icons.get_mut(parent) {

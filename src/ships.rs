@@ -86,18 +86,11 @@ impl FighterHealth {
     }
 
     pub fn estimate_wreckage(&self) -> Wreckage {
-        let mut wreckage = ["", ""];
-        if self.are_engines_wrecked() {
-            wreckage[0] = "engines";
-        }
-        if self.are_weapons_wrecked() {
-            wreckage[1] = "weapons";
-        }
-        match wreckage {
-            ["engines", "weapons"] => Wreckage::EnginesWeapons,
-            ["engines", ""] => Wreckage::Engines,
-            ["", "weapons"] => Wreckage::Weapons,
-            _ => Wreckage::None,
+        match (self.are_engines_wrecked(), self.are_weapons_wrecked()) {
+            (true, true) => Wreckage::EnginesWeapons,
+            (true, false) => Wreckage::Engines,
+            (false, true) => Wreckage::Weapons,
+            (false, false) => Wreckage::None
         }
     }
 }
@@ -130,7 +123,6 @@ pub fn spawn_ship(
     commands
         .spawn((
             Sprite::from_image(image),
-            icon.clone(),
             owner,
             MapVisible,
             Transform::from_translation(pos.clone().as_vec2().extend(0.)),
@@ -276,6 +268,7 @@ pub fn update_fighter_texture(
     mut commands: Commands,
     assets: Res<AssetServer>,
     ship_query: Query<(&ChildOf, &MapIcon)>,
+    mut sprites: Query<&mut Sprite>
 ) {
     for (childof, icon) in ship_query {
         let entity = childof.parent();
@@ -288,7 +281,7 @@ pub fn update_fighter_texture(
                 Wreckage::EnginesWeapons => {
                     assets.load("icons/fighter_ally-noengines-noweapons.png")
                 }
-                Wreckage::None => return,
+                Wreckage::None => assets.load("icons/fighter_ally.png"),
             },
             Factions::TestEnemy => match wreckage {
                 Wreckage::Engines => assets.load("icons/fighter_enemy-noengines.png"),
@@ -296,16 +289,16 @@ pub fn update_fighter_texture(
                 Wreckage::EnginesWeapons => {
                     assets.load("icons/fighter_enemy-noengines-noweapons.png")
                 }
-                Wreckage::None => return,
+                Wreckage::None => assets.load("icons/fighter_enemy.png"),
             },
-            Factions::Player => return,
+            Factions::Player => continue,
         };
 
-        commands.queue(move |world: &mut World| {
-            if let Ok(mut entity_mut) = world.get_entity_mut(entity) {
-                entity_mut.insert(Sprite::from_image(image));
+        if let Ok(mut sprite) = sprites.get_mut(childof.parent()) {
+            if sprite.image != image {
+                sprite.image = image;
             }
-        });
+        }
     }
 }
 
@@ -531,6 +524,7 @@ pub fn ship_bullet_collision(
                                     ship_health = icon.get_health();
                                     if ship_health.is_ship_wrecked() {
                                         commands.entity(entity2).queue_silenced(despawn());
+                                        commands.entity(icon_parent.parent()).queue_silenced(despawn());
                                     }
                                 }
                             }
