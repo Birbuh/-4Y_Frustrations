@@ -850,14 +850,20 @@ pub struct MapIconSelected;
 
 pub fn update_cursor_pos(
     mut cursor: ResMut<MapCursor>,
-    windows: Query<&Window, With<PrimaryWindow>>,
-    camera: Res<MapCamera>,
+    window: Single<&Window, With<PrimaryWindow>>,
+    camera: Single<(&Camera, &GlobalTransform), With<Camera2d>>,
 ) {
-    for window in windows {
-        if let Some(current_cursor_pos) = window.cursor_position() {
-            cursor.pos = screen_to_map(current_cursor_pos, &camera);
-        }
-    }
+    let Some(screen_pos) = window.cursor_position() else {
+        return;
+    };
+
+    let (camera, camera_transform) = camera.into_inner();
+
+    let Ok(world_pos) = camera.viewport_to_world_2d(camera_transform, screen_pos) else {
+        return;
+    };
+
+    cursor.pos = world_pos.as_dvec2();
 }
 
 // ############################ selection, this needs to be improved

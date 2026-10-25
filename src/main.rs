@@ -5,7 +5,9 @@ mod ships;
 
 use std::collections::HashMap;
 
-use bevy::{math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen};
+use bevy::{
+    camera::CameraUpdateSystems, math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen,
+};
 use bevy_rapier2d::{
     plugin::{NoUserData, RapierPhysicsPlugin},
     render::RapierDebugRenderPlugin,
@@ -64,15 +66,25 @@ fn main() {
     .add_systems(
         Update,
         (
-            update_cursor_pos,
-            (add_ship_from_input, spawn_ship_health_bars).chain(),
             toggle_pause,
             update_health_bars,
             update_fighter_texture,
-            (order /* select */,).chain(),
             // render_routes,
             draw_sector,
-        ),
+        )
+            .chain(),
+    )
+    .add_systems(
+        PostUpdate,
+        (
+            update_cursor_pos,
+            add_ship_from_input,
+            spawn_ship_health_bars,
+            order,
+        )
+            .chain()
+            .after(CameraUpdateSystems)
+            .after(TransformSystems::Propagate),
     )
     .add_plugins((
         DefaultPlugins.set(WindowPlugin {
