@@ -90,7 +90,7 @@ impl FighterHealth {
             (true, true) => Wreckage::EnginesWeapons,
             (true, false) => Wreckage::Engines,
             (false, true) => Wreckage::Weapons,
-            (false, false) => Wreckage::None
+            (false, false) => Wreckage::None,
         }
     }
 }
@@ -268,7 +268,7 @@ pub fn update_fighter_texture(
     mut commands: Commands,
     assets: Res<AssetServer>,
     ship_query: Query<(&ChildOf, &MapIcon)>,
-    mut sprites: Query<&mut Sprite>
+    mut sprites: Query<&mut Sprite>,
 ) {
     for (childof, icon) in ship_query {
         let entity = childof.parent();
@@ -524,7 +524,9 @@ pub fn ship_bullet_collision(
                                     ship_health = icon.get_health();
                                     if ship_health.is_ship_wrecked() {
                                         commands.entity(entity2).queue_silenced(despawn());
-                                        commands.entity(icon_parent.parent()).queue_silenced(despawn());
+                                        commands
+                                            .entity(icon_parent.parent())
+                                            .queue_silenced(despawn());
                                     }
                                 }
                             }

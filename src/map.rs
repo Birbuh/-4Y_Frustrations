@@ -690,7 +690,10 @@ pub fn fulfill_orders(
                 } else {
                     destination.y = random_range(3000_f64..5000_f64);
                 }
-                commands.entity(entity).insert(Order::Fly).insert(MapRoute::new(pos, destination));
+                commands
+                    .entity(entity)
+                    .insert(Order::Fly)
+                    .insert(MapRoute::new(pos, destination));
             }
             _ => {}
         }
@@ -721,10 +724,12 @@ pub fn fulfill_orders(
                     } else {
                         commands.entity(parent).remove::<Rotated>();
                     }
-                }        
+                }
                 if icon.get_health().are_engines_wrecked() {
                     commands.entity(entity).remove::<MapRoute>();
-                    commands.entity(child_of.parent()).queue_silenced(remove::<Velocity>());
+                    commands
+                        .entity(child_of.parent())
+                        .queue_silenced(remove::<Velocity>());
                     continue;
                 }
                 if let Ok((mut vel, rotated)) = map_icons.get_mut(parent) {
@@ -784,9 +789,10 @@ pub fn fulfill_orders(
                 commands
                     .entity(base_entity)
                     .insert(MapRoute::new(base_pos.clone(), target_pos.clone()));
-            // } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.) {
-            //     commands.entity(base_entity).remove::<MapRoute>();
-            } if is_close_enough(base_pos, target_pos, 1500.) {
+                // } else if base_route.is_some() && is_close_enough(base_pos, target_pos, 100.) {
+                //     commands.entity(base_entity).remove::<MapRoute>();
+            }
+            if is_close_enough(base_pos, target_pos, 1500.) {
                 if let Ok(transform) = transform_q.get(base_child_of.parent()) {
                     if !base_health.are_weapons_wrecked() {
                         shoot(

@@ -3,9 +3,9 @@ use std::collections::HashMap;
 use bevy::{ecs::system::Query, prelude::*};
 
 use crate::{
-    map::{Factions, MapIcon, MapRoute, Order}, ships::look_for_enemies,
+    map::{Factions, MapIcon, MapRoute, Order},
+    ships::look_for_enemies,
 };
-
 
 #[derive(Resource, Debug)]
 pub struct ShipAiCooldownTimer(pub HashMap<Entity, Timer>);
@@ -16,7 +16,13 @@ pub struct Fleed;
 // npses is a plural to NPS (NonPlayableShip). (:
 pub fn ships_ai(
     mut commands: Commands,
-    npses: Query<(Entity, &MapIcon, Option<&Fleed>, Option<&MapRoute>, Option<&Order>)>,
+    npses: Query<(
+        Entity,
+        &MapIcon,
+        Option<&Fleed>,
+        Option<&MapRoute>,
+        Option<&Order>,
+    )>,
     mut cooldown_timer: If<ResMut<ShipAiCooldownTimer>>,
 ) {
     for (entity, icon, fleed, route, _order) in npses {

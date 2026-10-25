@@ -6,17 +6,24 @@ mod ships;
 use std::collections::HashMap;
 
 use bevy::{math::DVec2, prelude::*, window::WindowMode::BorderlessFullscreen};
-use bevy_rapier2d::{plugin::{NoUserData, RapierPhysicsPlugin}, render::RapierDebugRenderPlugin};
+use bevy_rapier2d::{
+    plugin::{NoUserData, RapierPhysicsPlugin},
+    render::RapierDebugRenderPlugin,
+};
 
 use crate::{
     map::{
         MapCamera, MapCursor, MapPlugin, MapState, Paused, Unpaused, add_ship_from_input,
-        draw_sector, fulfill_orders, order,
-        render_routes, /* select, */ spawn_sector, toggle_pause, update_cursor_pos,
-        update_pos_from_velocity, update_ship_pos,
-    }, npcs::{
+        draw_sector, fulfill_orders, order, render_routes, /* select, */ spawn_sector,
+        toggle_pause, update_cursor_pos, update_pos_from_velocity, update_ship_pos,
+    },
+    npcs::{
         ShipAiCooldownTimer, reset_finished_ai_cooldown_timer, ships_ai, tick_ai_cooldown_timer,
-    }, ships::{ShootCooldownTimer, reset_shoot_cooldown, ship_bullet_collision, spawn_ship_health_bars, update_fighter_texture, update_health_bars, tick_shoot_cooldown},
+    },
+    ships::{
+        ShootCooldownTimer, reset_shoot_cooldown, ship_bullet_collision, spawn_ship_health_bars,
+        tick_shoot_cooldown, update_fighter_texture, update_health_bars,
+    },
 };
 
 fn test_map(mut commands: Commands) {
@@ -32,16 +39,12 @@ fn main() {
     })
     .insert_resource(MapCursor { pos: DVec2::ZERO })
     .insert_resource(ShipAiCooldownTimer(HashMap::new()))
-    .insert_resource(ShootCooldownTimer(Timer::from_seconds(0.2, TimerMode::Once)))
+    .insert_resource(ShootCooldownTimer(Timer::from_seconds(
+        0.2,
+        TimerMode::Once,
+    )))
     .insert_resource(Paused)
-    .add_systems(
-        Startup,
-        (
-            test_map,
-            spawn_sector,
-        )
-            .chain(),
-    )
+    .add_systems(Startup, (test_map, spawn_sector).chain())
     .add_systems(
         FixedUpdate,
         (
@@ -66,7 +69,7 @@ fn main() {
             toggle_pause,
             update_health_bars,
             update_fighter_texture,
-            (order, /* select */).chain(),
+            (order /* select */,).chain(),
             // render_routes,
             draw_sector,
         ),
