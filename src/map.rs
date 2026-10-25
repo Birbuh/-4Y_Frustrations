@@ -12,11 +12,11 @@ use bevy::{
     input::{
         ButtonInput,
         keyboard::KeyCode,
-        mouse::{AccumulatedMouseMotion, MouseWheel},
+        mouse::MouseWheel,
     },
     math::DVec2,
     prelude::*,
-    window::PrimaryWindow,
+    window::{CursorMoved, PrimaryWindow},
 };
 use bevy_rapier2d::plugin::RapierConfiguration;
 use rand::random_range;
@@ -34,7 +34,7 @@ impl Plugin for MapPlugin {
     fn build(&self, app: &mut App) {
         // app.add_plugins(InfiniteGridPlugin);
         app.add_systems(
-            FixedUpdate,
+            Update,
             (update_map_camera, update_camera_from_map_camera).chain(),
         );
     }
@@ -382,9 +382,13 @@ pub fn update_map_camera(
     mouse: Res<ButtonInput<MouseButton>>,
     mut map_camera: ResMut<MapCamera>,
     mut mouse_wheel: MessageReader<MouseWheel>,
-    mouse_motion: Res<AccumulatedMouseMotion>,
+    mut cursor_moved: MessageReader<CursorMoved>,
+    primary_window: Single<Entity, With<PrimaryWindow>>,
 ) {
-    for event in mouse_wheel.read() {
+    for event in mouse_wheel
+        .read()
+        .filter(|event| event.window == *primary_window)
+    {
         if map_camera.zoom > 0.4 && map_camera.zoom < 20. {
             map_camera.zoom += event.y as f64 / 5.; // update the map zoom by the amount was scrolled.
         } else if map_camera.zoom <= 0.4 {
@@ -403,12 +407,17 @@ pub fn update_map_camera(
         // }
     }
 
+    // Drain window-relative movement every frame, even when not dragging, so
+    // old movement cannot be applied when the right button is pressed later.
+    let delta: Vec2 = cursor_moved
+        .read()
+        .filter(|event| event.window == *primary_window)
+        .filter_map(|event| event.delta)
+        .sum();
+
     if mouse.pressed(MouseButton::Right) {
-        let mut delta_mouse_motion = mouse_motion.delta; // get mouse delta from the last frame
-
-        delta_mouse_motion.x = -delta_mouse_motion.x;
-
-        map_camera.update_pos_from_vec2(&delta_mouse_motion); // update the map's centre pos
+        let world_delta = DVec2::new(-delta.x as f64, delta.y as f64) / map_camera.zoom;
+        map_camera.center += world_delta;
     }
 }
 
