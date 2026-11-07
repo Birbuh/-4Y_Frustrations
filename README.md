@@ -8,6 +8,8 @@ Inspired by *X4: Foundations*, the project uses original lore and a 2D presentat
 
 ## Getting started
 
+-# you can download from releases btw
+
 ### Requirements
 
 - Rust 1.95 or newer and Cargo, as required by the current Bevy 0.19 dependency.
@@ -136,35 +138,6 @@ Sector positions use a positive-Y-up coordinate system. Ship sprites face local 
 
 The simulation chain lets order execution and AI observe completed timers before they are reset. Cursor-dependent handlers run after coordinate conversion. These dependencies are documented next to the systems in the source.
 
-## Development
-
-Use the committed `Cargo.lock` when building the application:
-
-```bash
-cargo check --locked
-cargo fmt --all -- --check
-cargo clippy --locked --all-targets
-cargo test --locked
-```
-
-The prototype still has compiler warnings, and automated gameplay regression tests are not yet included.
-
-### Generate code documentation
-
-Public types and functions include Rustdoc comments. Include private modules when generating the application documentation:
-
-```bash
-cargo doc --locked --no-deps --document-private-items
-```
-
-Open `target/doc/y4_frustrations/index.html` to browse the generated documentation. Add `--open` to the command to open it automatically.
-
-### Contributing
-
-Bug reports should include the operating system, reproduction steps, and expected versus observed behavior. For combat issues, include the ship factions and module damage involved.
-
-Keep pull requests focused, describe any gameplay changes, and list the checks performed. Update relevant Rustdoc and this README when controls, ship settings, or system responsibilities change.
-
 ## Known limitations
 
 - AI targeting, combat steering, and flight behavior are basic and still being refined.
@@ -174,19 +147,6 @@ Keep pull requests focused, describe any gameplay changes, and list the checks p
 - Repair settings are stored but do not drive a repair system.
 - Missed projectiles have no lifetime limit, and AI timer entries are not removed when ships are destroyed.
 - Random flee destinations are not seeded for deterministic replay.
-
-## Roadmap
-
-- Refine targeting, navigation, and combat behavior.
-- Improve simulation cleanup and add regression tests.
-- Balance fighter statistics and combat.
-- Prepare a playable desktop release.
-
-The longer-term vision includes a broader space strategy game; current work focuses on the battle simulator.
-
-## Development logs
-
-Follow progress on the [Stardance project page](https://stardance.hackclub.com/projects/57852).
 
 ## License
 
