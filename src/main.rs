@@ -1,9 +1,3 @@
-//! Desktop entry point for the sector battle prototype.
-//!
-//! The fixed-step simulation runs while [`map::Unpaused`] exists. Camera controls
-//! and visual feedback continue every frame; cursor-based commands run after
-//! Bevy has updated camera projection and propagated transforms.
-
 mod map;
 mod npcs;
 mod ships;
@@ -32,12 +26,10 @@ use crate::{
     },
 };
 
-/// Spawns the single 2D camera used to view the sector.
 fn test_map(mut commands: Commands) {
     commands.spawn(Camera2d);
 }
 
-/// Configures the prototype scene, resources, plugins, and system ordering.
 fn main() {
     let mut app = App::new();
     app.insert_resource(MapCamera {

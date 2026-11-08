@@ -1,8 +1,10 @@
 # -4Y: Frustrations
 
-A desktop 2D space battle simulator built with Rust, Bevy, and Rapier.
+A small 2D space battle simulator built with Rust, Bevy, and Rapier.
 
 **Status:** early prototype. I don't have time to actively work on it.
+
+I also tried to make a web version on itch.io but that would require too much rewriting...
 
 ## Getting started
 
@@ -11,8 +13,7 @@ You can download from GitHub releases or build from source:
 ### Requirements
 
 Just install Rust 1.95 or newer from Rustup.
-
-On Linux, the enabled desktop backends and default Bevy features also require development libraries for windowing, audio, and device input. Build errors from packages such as `alsa-sys`, `libudev-sys`, or `wayland-sys` usually indicate missing system development packages.
+If you get errors involving alsa-sys, libudev-sys, or wayland-sys, you're probably missing some system dependencies.
 
 ### Run from source
 
@@ -37,6 +38,7 @@ Run these commands from the repository root so Bevy can find the `assets/` direc
 3. Press **Space** to start the simulation.
 
 Place opposing ships near each other to trigger combat.
+You can pause always with **Space** and place more ships! 
 
 ## Controls
 ### ONLY IN PAUSE:
@@ -58,7 +60,7 @@ There is a selection system present in the code, but it's not used. Why? Because
 
 Ships turn toward their route destinations and move along their local forward direction. The custom movement controller applies acceleration, speed limits, and braking.
 
-Non-player ships evaluate their situation at 0.5-second intervals. They search for nearby hostile ships when they have no route and have not fled.
+Every 0.5 seconds, ships without a route look for nearby enemies, unless they're already fleeing or fleed.
 
 ### Combat and damage
 
