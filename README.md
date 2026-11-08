@@ -41,10 +41,13 @@ Place opposing ships near each other to trigger combat.
 ## Controls
 ### ONLY IN PAUSE:
 Left mouse button -> Spawn an allied fighter at the cursor
+
 Middle mouse button -> Spawn an enemy fighter at the cursor
 ### ALWAYS ENABLED:
 Right mouse button + drag -> Pan the sector camera
+
 Mouse wheel -> Zoom the sector camera
+
 Space -> Toggle the simulation and physics pause
 
 There is a selection system present in the code, but it's not used. Why? Because you can't give orders to Allies/Enemies, it would be senseless to have it enabled.
@@ -62,8 +65,11 @@ Non-player ships evaluate their situation at 0.5-second intervals. They search f
 Projectiles damage shields or one of three modules:
 
 Shields -> Absorb hits while their health is positive;
+
 Core -> Destruction removes the ship;
-Engines -> Destruction disables movement through the current route-handling logic; 
+
+Engines -> Destruction disables movement through the current route-handling logic;
+
 Weapons -> Destruction prevents further firing. The ship tries to escape, but only once.
 
 Once shields are depleted, the projectile's position relative to the target determines the module hit: front hits damage the core, rear hits damage engines, and side hits damage weapons. Further hits on destroyed engines or weapons damage the core.
