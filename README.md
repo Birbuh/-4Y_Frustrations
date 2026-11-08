@@ -2,19 +2,15 @@
 
 A desktop 2D space battle simulator built with Rust, Bevy, and Rapier.
 
-Inspired by *X4: Foundations*, the project uses original lore and a 2D presentation. The current focus is a sector battle prototype with AI-controlled fighters, navigation, projectiles, and damage to individual ship modules.
-
-**Status:** early prototype. Combat and movement are under active development; see [Known limitations](#known-limitations) before treating the current behavior as final.
+**Status:** early prototype. I don't have time to actively work on it.
 
 ## Getting started
 
--# you can download from releases btw
+You can download from GitHub releases or build from source:
 
 ### Requirements
 
-- Rust 1.95 or newer and Cargo, as required by the current Bevy 0.19 dependency.
-- A native compiler/linker and the platform development libraries required by Bevy.
-- A graphics environment supported by Bevy's renderer.
+Just install Rust 1.95 or newer from Rustup.
 
 On Linux, the enabled desktop backends and default Bevy features also require development libraries for windowing, audio, and device input. Build errors from packages such as `alsa-sys`, `libudev-sys`, or `wayland-sys` usually indicate missing system development packages.
 
@@ -39,22 +35,19 @@ Run these commands from the repository root so Bevy can find the `assets/` direc
 1. Left-click in the sector to place allied fighters.
 2. Middle-click elsewhere nearby to place enemy fighters.
 3. Press **Space** to start the simulation.
-4. Hold the **right mouse button** and drag to pan; use the **mouse wheel** to zoom.
-5. Press **Space** again to pause and place more ships.
 
-AI searches for hostile ships within 2,000 world units. Place opposing ships near each other to trigger combat.
+Place opposing ships near each other to trigger combat.
 
 ## Controls
+### ONLY IN PAUSE:
+Left mouse button -> Spawn an allied fighter at the cursor
+Middle mouse button -> Spawn an enemy fighter at the cursor
+### ALWAYS ENABLED:
+Right mouse button + drag -> Pan the sector camera
+Mouse wheel -> Zoom the sector camera
+Space -> Toggle the simulation and physics pause
 
-| Input | Action | Availability |
-| --- | --- | --- |
-| Left mouse button | Spawn an allied fighter at the cursor | Paused |
-| Middle mouse button | Spawn an enemy fighter at the cursor | Paused |
-| Right mouse button + drag | Pan the sector camera | Paused or running |
-| Mouse wheel | Zoom the sector camera | Paused or running |
-| Space | Toggle the simulation and physics pause | Always |
-
-Manual selection is currently disabled. Although order-assignment code exists, selecting a ship and issuing commands is not an active gameplay control.
+There is a selection system present in the code, but it's not used. Why? Because you can't give orders to Allies/Enemies, it would be senseless to have it enabled.
 
 ## Simulation
 
@@ -62,28 +55,24 @@ Manual selection is currently disabled. Although order-assignment code exists, s
 
 Ships turn toward their route destinations and move along their local forward direction. The custom movement controller applies acceleration, speed limits, and braking.
 
-Non-player ships evaluate their situation at 0.5-second intervals. They search for nearby hostile ships when they have no route and have not fled. A ship whose weapons are destroyed receives a flee order once.
+Non-player ships evaluate their situation at 0.5-second intervals. They search for nearby hostile ships when they have no route and have not fled.
 
 ### Combat and damage
 
 Projectiles damage shields or one of three modules:
 
-| Component | Behavior |
-| --- | --- |
-| Shields | Absorb hits while their health is positive |
-| Core | Destruction removes the ship |
-| Engines | Destruction disables movement through the current route-handling logic |
-| Weapons | Destruction prevents further firing |
+Shields -> Absorb hits while their health is positive;
+Core -> Destruction removes the ship;
+Engines -> Destruction disables movement through the current route-handling logic; 
+Weapons -> Destruction prevents further firing. The ship tries to escape, but only once.
 
 Once shields are depleted, the projectile's position relative to the target determines the module hit: front hits damage the core, rear hits damage engines, and side hits damage weapons. Further hits on destroyed engines or weapons damage the core.
 
-A hit that depletes shields does not transfer excess damage to a module. The next hit is classified using the depleted shield state.
-
-Allied and enemy fighter textures change when engines, weapons, or both are destroyed. Four bars display shields, core health, engine health, and weapon health, in that order.
+Four bars display shields, core health, engine health, and weapon health in this exact order from up to down.
 
 ### Current fighter settings
 
-These values are hardcoded in [`add_ship_from_input`](src/map.rs). They are prototype settings rather than balanced ship definitions.
+These values are hardcoded in [`add_ship_from_input`](src/map.rs). I tried to make Allies more focused on durability, and Enemies on attack. These will probably change in the future.
 
 | Setting | Ally | Enemy |
 | --- | ---: | ---: |
@@ -94,59 +83,7 @@ These values are hardcoded in [`add_ship_from_input`](src/map.rs). They are prot
 | Damage per projectile | 30 | 40 |
 | Stored repair setting | 3 | 3 |
 
-Automatic repairs are not implemented. Movement values use the current prototype controller's units; they should not be interpreted as physical units per second.
-
-## Code organization
-
-| File | Responsibility |
-| --- | --- |
-| [`src/main.rs`](src/main.rs) | Application setup, initial resources, plugins, and system scheduling |
-| [`src/map.rs`](src/map.rs) | Map state, camera input, cursor conversion, movement, routes, and orders |
-| [`src/ships.rs`](src/ships.rs) | Fighter data, spawning, damage visuals, health bars, projectiles, and collisions |
-| [`src/npcs.rs`](src/npcs.rs) | Periodic AI decisions and decision timers |
-| `assets/icons/` | Fighter textures and other map artwork |
-
-### Ship entities
-
-A ship is represented by a hierarchy:
-
-```text
-Physical ship parent
-  Sprite, Transform, Collider, custom Velocity, faction
-  |
-  +-- Logical icon child
-  |     MapIcon containing Fighter state, optional Order and MapRoute
-  |
-  +-- Health-bar children
-        Sprite, Transform, FighterHealthBarFill
-```
-
-AI and attack targets refer to the **logical icon child**. Movement and rotation modify the **physical parent**. Collision events identify the parent, so collision handling resolves its icon child to apply damage.
-
-Destroying a ship must remove the parent and its children together. Removing only the icon leaves the sprite and collider behind while making the ship unavailable to targeting.
-
-Sector positions use a positive-Y-up coordinate system. Ship sprites face local +Y. Active cursor conversion uses Bevy's camera projection to map window coordinates into this world.
-
-### System ordering
-
-| Schedule | Work |
-| --- | --- |
-| `Startup` | Spawn the camera and prototype sector |
-| `FixedUpdate` | While unpaused: advance timers, move ships, execute orders, process collision damage, evaluate AI, then reset finished timers |
-| `Update` | Camera controls and synchronization, pause input, damage visuals, health bars, and sector drawing |
-| `PostUpdate` | After camera updates and transform propagation: convert the cursor position, handle spawning, create bars, and assign manual orders |
-
-The simulation chain lets order execution and AI observe completed timers before they are reset. Cursor-dependent handlers run after coordinate conversion. These dependencies are documented next to the systems in the source.
-
-## Known limitations
-
-- AI targeting, combat steering, and flight behavior are basic and still being refined.
-- All shooters share a firing timer; individual weapon cooldowns are not implemented.
-- Ship displacement currently depends on the fixed simulation step, and braking can leave residual motion.
-- Manual selection and route drawing are disabled in the application setup.
-- Repair settings are stored but do not drive a repair system.
-- Missed projectiles have no lifetime limit, and AI timer entries are not removed when ships are destroyed.
-- Random flee destinations are not seeded for deterministic replay.
+Automatic repairs are not implemented yet. Movement values should not be interpreted as physical units per second.
 
 ## License
 
